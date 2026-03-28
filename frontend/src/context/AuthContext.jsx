@@ -1,12 +1,17 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState } from "react";
 import api from "../api/client";
 
 const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(() => {
-    const stored = localStorage.getItem("user");
-    return stored ? JSON.parse(stored) : null;
+    try {
+      const stored = localStorage.getItem("user");
+      return stored ? JSON.parse(stored) : null;
+    } catch {
+      localStorage.removeItem("user");
+      return null;
+    }
   });
   const [loading, setLoading] = useState(false);
 
@@ -17,6 +22,9 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem("user", JSON.stringify(data));
       setUser(data);
       return data;
+    } catch (err) {
+      // Re-throw so the calling component can show error toast
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -29,6 +37,8 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem("user", JSON.stringify(data));
       setUser(data);
       return data;
+    } catch (err) {
+      throw err;
     } finally {
       setLoading(false);
     }
@@ -42,6 +52,8 @@ export const AuthProvider = ({ children }) => {
       setUser(data);
       localStorage.setItem("adminKeyValid", "true");
       return data;
+    } catch (err) {
+      throw err;
     } finally {
       setLoading(false);
     }

@@ -1,53 +1,38 @@
-import { useEffect, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import TimedRedirectNotice from "../components/TimedRedirectNotice";
+import { useToast } from "../components/Toast";
 
 const AdminLogin = () => {
+  const toast = useToast();
   const navigate = useNavigate();
-  const location = useLocation();
-  const { login } = useAuth();
+  const { login, logout } = useAuth();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [redirectNonAdmin, setRedirectNonAdmin] = useState(false);
-
-  useEffect(() => {
-    const stateFrom = location.state?.from;
-    if (typeof stateFrom === "string" && stateFrom.startsWith("/admin/")) {
-      // Optional: could show a small hint on the page later.
-    }
-  }, [location.state]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
     setLoading(true);
     try {
       const data = await login(email, password);
       if (!data || data.role !== "admin") {
-        setRedirectNonAdmin(true);
+        // Not an admin — log them back out so we don't leave stale state
+        logout();
+        toast.error("This account does not have admin privileges.");
+        setLoading(false);
         return;
       }
+      toast.success("Welcome back, Administrator.");
       navigate("/admin/dashboard", { replace: true });
     } catch (err) {
-      setError(err?.response?.data?.message || "Sign in failed");
+      const msg = err?.response?.data?.message || "Sign in failed. Check your credentials.";
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
-
-  if (redirectNonAdmin) {
-    return (
-      <TimedRedirectNotice
-        message="This account isn't an admin. Redirecting you to the normal sign in page."
-        to="/login"
-        seconds={5}
-      />
-    );
-  }
 
   return (
     <div className="auth-shell">
@@ -81,8 +66,6 @@ const AdminLogin = () => {
               required
             />
           </label>
-
-          {error && <div className="badge error-badge">{error}</div>}
 
           <button className="btn frost-sapphire" type="submit" disabled={loading}>
             {loading ? "Signing in..." : "Sign in"}

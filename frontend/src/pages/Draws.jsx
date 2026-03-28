@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../components/Toast";
 
 const Draws = () => {
   const { user } = useAuth();
+  const toast = useToast();
 
   const [draws, setDraws] = useState([]);
   const [nextDraw, setNextDraw] = useState(null);
@@ -12,6 +14,8 @@ const Draws = () => {
   const [filterParticipated, setFilterParticipated] = useState(false);
   const [filterWon, setFilterWon] = useState(false);
 
+  const [payoutData, setPayoutData] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -19,12 +23,14 @@ const Draws = () => {
     setLoading(true);
     setError("");
     try {
-      const [{ data: drawData }, { data: next }] = await Promise.all([
+      const [{ data: drawData }, { data: next }, { data: stats }] = await Promise.all([
         api.get("/draws"),
         api.get("/draws/next"),
+        api.get("/stats/hero").catch(() => ({ data: null }))
       ]);
       setDraws(Array.isArray(drawData) ? drawData : []);
       setNextDraw(next || null);
+      setPayoutData(stats || null);
     } catch (err) {
       setError(err?.response?.data?.message || "Failed to load draws.");
       setDraws([]);
@@ -48,22 +54,41 @@ const Draws = () => {
   }, [nextDraw?.drawAt, nextDraw?.drawDate]);
 
   useEffect(() => {
-    if (!nextDrawAt) return setCountdown("-");
+    if (!nextDrawAt) {
+      setCountdown("-");
+      return;
+    }
 
     const tick = () => {
       const diff = nextDrawAt.getTime() - Date.now();
-      if (diff <= 0) return setCountdown("Live");
+      // If the draw time has just passed, show LIVE briefly; if it's overdue, show a ticking overdue timer.
+      if (diff <= 0) {
+        const overdue = Math.abs(diff);
+        if (overdue < 2 * 60 * 1000) return setCountdown("LIVE");
+        const days = Math.floor(overdue / (1000 * 60 * 60 * 24));
+        const hours = Math.floor((overdue / (1000 * 60 * 60)) % 24);
+        const mins = Math.floor((overdue / (1000 * 60)) % 60);
+        const secs = Math.floor((overdue / 1000) % 60);
+        const hh = String(hours).padStart(2, "0");
+        const mm = String(mins).padStart(2, "0");
+        const ss = String(secs).padStart(2, "0");
+        return setCountdown(`OVERDUE ${days}D ${hh}H ${mm}M ${ss}S`);
+      }
       const days = Math.floor(diff / (1000 * 60 * 60 * 24));
       const hours = Math.floor((diff / (1000 * 60 * 60)) % 24);
       const mins = Math.floor((diff / (1000 * 60)) % 60);
       const secs = Math.floor((diff / 1000) % 60);
-      setCountdown(`${days}D ${hours}H ${mins}M ${secs}S`);
+      // Pad smaller units so the counter visibly "ticks" and feels intentional.
+      const hh = String(hours).padStart(2, "0");
+      const mm = String(mins).padStart(2, "0");
+      const ss = String(secs).padStart(2, "0");
+      setCountdown(`${days}D ${hh}H ${mm}M ${ss}S`);
     };
 
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [nextDrawAt]);
+  }, [nextDrawAt?.getTime()]);
 
   const filteredDraws = draws.filter((d) => {
     const participatedOk = filterParticipated ? d.participated : true;
@@ -72,6 +97,26 @@ const Draws = () => {
   });
 
   const myEntries = draws.filter((d) => d.participated).length || 0;
+  const nextParticipated = useMemo(() => {
+    if (!nextDraw?._id) return false;
+    const hit = draws.find((d) => String(d._id) === String(nextDraw._id));
+    return Boolean(hit?.participated);
+  }, [draws, nextDraw?._id]);
+
+  const participate = async () => {
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+    if (!nextDraw?._id) return;
+    try {
+      await api.post(`/draws/${nextDraw._id}/participate`);
+      toast.success("Entered the next draw.");
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.message || "Could not participate.");
+    }
+  };
 
   if (loading) {
     return <div className="card glass-card">Loading draws...</div>;
@@ -89,6 +134,33 @@ const Draws = () => {
           </div>
         </div>
       )}
+
+      {/* THE CROWN JEWEL (Multi-Tier Prize Chamber) */}
+      <div className="crown-jewel-bar glass-card" style={{ marginBottom: 30 }}>
+        <div className="pool-tier-suite">
+          <div className="tier-brick">
+            <span className="tier-label gold-leaf-text">JACKPOT (5-MATCH)</span>
+            <h2 className="tier-amount gold-leaf-heading">
+              ${payoutData?.activePool?.tier5?.toLocaleString("en-US", { maximumFractionDigits: 0 }) || "194,200"}
+            </h2>
+            {payoutData?.activePool?.rollover > 0 && (
+               <span className="rollover-tag">+${payoutData.activePool.rollover.toLocaleString("en-US")} Rollover</span>
+            )}
+          </div>
+          <div className="tier-brick border-sides">
+            <span className="tier-label gold-leaf-text">PRESTIGE (4-MATCH)</span>
+            <h2 className="tier-amount gold-leaf-heading">
+              ${payoutData?.activePool?.tier4?.toLocaleString("en-US", { maximumFractionDigits: 0 }) || "169,925"}
+            </h2>
+          </div>
+          <div className="tier-brick">
+            <span className="tier-label gold-leaf-text">IMPACT (3-MATCH)</span>
+            <h2 className="tier-amount gold-leaf-heading">
+              ${payoutData?.activePool?.tier3?.toLocaleString("en-US", { maximumFractionDigits: 0 }) || "121,375"}
+            </h2>
+          </div>
+        </div>
+      </div>
 
       <div className="next-draw-card glass-card">
         <div className="next-draw-hero">
@@ -109,6 +181,20 @@ const Draws = () => {
           <p className="countdown">
             Countdown: <span className="gold-leaf-heading">{countdown}</span>
           </p>
+
+          {nextDraw?._id && (
+            <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button
+                className="btn"
+                type="button"
+                onClick={participate}
+                disabled={!user || nextParticipated || String(nextDraw?.status || "").toLowerCase() === "cancelled"}
+                title={!user ? "Login required" : nextParticipated ? "Already participated" : "Enter draw"}
+              >
+                {!user ? "Login to participate" : nextParticipated ? "Participated" : "Participate"}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="next-draw-meta">
@@ -206,4 +292,3 @@ const Draws = () => {
 };
 
 export default Draws;
-

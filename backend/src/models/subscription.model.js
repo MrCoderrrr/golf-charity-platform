@@ -7,6 +7,13 @@ const subscriptionSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+    // Plan tier chosen on Pricing page.
+    tier: {
+      type: String,
+      enum: ["basic", "pro", "elite"],
+      default: "basic",
+      required: true,
+    },
     planType: {
       type: String,
       enum: ["monthly", "yearly"],

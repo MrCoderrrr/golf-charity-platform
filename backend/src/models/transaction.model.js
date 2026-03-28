@@ -14,7 +14,7 @@ const transactionSchema = new mongoose.Schema(
     },
     currency: {
       type: String,
-      default: "INR",
+      default: "USD",
       trim: true,
     },
     type: {

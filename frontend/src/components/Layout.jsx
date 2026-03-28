@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import golfBall from "../golfball.png";
 import Footer from "./Footer";
 
@@ -8,27 +8,33 @@ const Layout = ({ children }) => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [navHidden, setNavHidden] = useState(false);
-  const [lastScroll, setLastScroll] = useState(0);
+  const lastScrollY = useRef(0);
 
   const handleLogout = () => {
     logout();
     navigate("/login");
   };
 
+
   useEffect(() => {
     const onScroll = () => {
       const y = window.scrollY || 0;
-      const diff = y - lastScroll;
-      if (y > 80 && diff > 2) {
+      const diff = y - lastScrollY.current;
+      
+      if (y < 50) {
+        setNavHidden(false);
+      } else if (diff > 10) {
         setNavHidden(true);
-      } else if (diff < -2) {
+      } else if (diff < -15) {
         setNavHidden(false);
       }
-      setLastScroll(y);
+      
+      lastScrollY.current = y;
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
-  }, [lastScroll]);
+  }, []);
+
 
   return (
     <div className="app-shell">
@@ -38,7 +44,7 @@ const Layout = ({ children }) => {
       <nav className={`navbar ${navHidden ? "nav-hidden" : ""}`}>
         <Link to="/" className="brand">
           <img src={golfBall} alt="Golf ball" className="brand-icon" />
-          <span className="brand-script gold-leaf-text">Legacy&nbsp;Green</span>
+          <span className="brand-script gold-leaf-text" data-text="Legacy Green">Legacy&nbsp;Green</span>
         </Link>
         <div className="nav-links">
           <Link to="/">Dashboard</Link>

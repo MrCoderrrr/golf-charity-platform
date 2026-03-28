@@ -85,11 +85,19 @@ const Hero = () => {
   useEffect(() => {
     const magneticRadius = 26;
     const maxShift = 4;
+    const rects = new Map();
+    const updateRects = () => {
+      magneticBtnsRef.current.forEach((btn) => {
+        if (btn) rects.set(btn, btn.getBoundingClientRect());
+      });
+    };
+    updateRects();
+    window.addEventListener("resize", updateRects);
 
     const moveMagnet = (event) => {
       magneticBtnsRef.current.forEach((btn) => {
-        if (!btn) return;
-        const rect = btn.getBoundingClientRect();
+        const rect = rects.get(btn);
+        if (!rect) return;
         const centerX = rect.left + rect.width / 2;
         const centerY = rect.top + rect.height / 2;
         const dx = event.clientX - centerX;
@@ -97,9 +105,9 @@ const Hero = () => {
         const distance = Math.hypot(dx, dy);
         if (distance < magneticRadius) {
           const strength = (magneticRadius - distance) / magneticRadius;
-          const offsetX = Math.max(-maxShift, Math.min(maxShift, dx * strength * 0.3));
-          const offsetY = Math.max(-maxShift, Math.min(maxShift, dy * strength * 0.3));
-          btn.style.transform = `translate(${offsetX}px, ${offsetY}px)`;
+          const offsetX = Math.max(-maxShift, Math.min(maxShift, dx * strength * 0.35));
+          const offsetY = Math.max(-maxShift, Math.min(maxShift, dy * strength * 0.35));
+          btn.style.transform = `translate3d(${offsetX}px, ${offsetY}px, 0)`;
         } else {
           btn.style.transform = "";
         }
@@ -108,8 +116,7 @@ const Hero = () => {
 
     const resetMagnet = () => {
       magneticBtnsRef.current.forEach((btn) => {
-        if (!btn) return;
-        btn.style.transform = "";
+        if (btn) btn.style.transform = "";
       });
     };
 
@@ -118,11 +125,13 @@ const Hero = () => {
     window.addEventListener("blur", resetMagnet);
 
     return () => {
+      window.removeEventListener("resize", updateRects);
       window.removeEventListener("pointermove", moveMagnet);
       window.removeEventListener("mouseleave", resetMagnet);
       window.removeEventListener("blur", resetMagnet);
     };
   }, []);
+
 
   const scrollToContent = () => {
     const el = document.getElementById("dashboard-content");

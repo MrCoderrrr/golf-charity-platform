@@ -5,8 +5,11 @@ import { useAuth } from "../context/AuthContext";
 import { CharityIcon } from "../components/CharityIcon";
 
 const formatINR = (n) => {
-  const value = Number(n) || 0;
-  return `Rs ${value.toLocaleString("en-IN")}`;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(n) || 0);
 };
 
 const iconKeyFor = (c) => String(c?.icon || "").trim() || "star";

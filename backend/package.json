@@ -22,7 +22,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "backfill": "node scripts/backfill.js"
+    "backfill": "node scripts/backfill.js",
+    "migrate:draws-multi": "node scripts/migrate_draws_multi.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

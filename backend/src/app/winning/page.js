@@ -25,7 +25,7 @@ export default function Winnings() {
           {winnings.map((w) => (
             <div key={w._id} className="border p-4">
               <p>Match: {w.matchCount}</p>
-              <p>Amount: ₹{w.prizeAmount}</p>
+              <p>Amount: ${w.prizeAmount}</p>
               <p>Status: {w.status}</p>
               <p>Verified: {w.verified ? "Yes" : "No"}</p>
             </div>
@@ -35,3 +35,4 @@ export default function Winnings() {
     </ProtectedRoute>
   );
 }
+

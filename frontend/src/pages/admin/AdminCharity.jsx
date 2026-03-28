@@ -290,7 +290,7 @@ const AdminCharity = () => {
                           <h4 className="gold-leaf-heading">{c.name}</h4>
                           <p className="charity-desc tight">{c.description || "No description."}</p>
                           <div className="charity-amount functional-number">
-                            Rs {(Number(c.totalDonations || 0) || 0).toLocaleString("en-IN")}
+                            ${(Number(c.totalDonations || 0) || 0).toLocaleString("en-US")}
                           </div>
                         </div>
                       </div>

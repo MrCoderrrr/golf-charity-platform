@@ -5,10 +5,20 @@ const Donation = require("../models/donation.model");
 const Charity = require("../models/charity.model");
 const { createCheckoutSession, cancelSubscription } = require("../services/billing");
 
-const monthlyAmount = Number(process.env.SUBSCRIPTION_AMOUNT_MONTHLY || 10);
-const yearlyAmount = Number(process.env.SUBSCRIPTION_AMOUNT_YEARLY || 100);
+const PRICES_USD = {
+  basic: { monthly: 999, yearly: 9999 },
+  pro: { monthly: 2499, yearly: 24999 },
+  elite: { monthly: 4999, yearly: 49999 },
+};
 
-const getPlanAmount = (planType) => (planType === "yearly" ? yearlyAmount : monthlyAmount);
+const normalizeTier = (tier) => String(tier || "basic").trim().toLowerCase();
+
+const getPlanAmount = (tier, planType) => {
+  const t = normalizeTier(tier);
+  const bucket = PRICES_USD[t];
+  if (!bucket) return null;
+  return planType === "yearly" ? bucket.yearly : bucket.monthly;
+};
 
 const parseDate = (value) => {
   if (!value) return null;
@@ -27,12 +37,20 @@ const monthKeyUTC = (date) => {
 
 exports.createSubscription = async (req, res) => {
   try {
-    const { planType, startDate, endDate } = req.body;
+    const { planType, startDate, endDate, tier } = req.body;
     if (!["monthly", "yearly"].includes(planType)) {
       return res.status(400).json({ message: "planType must be monthly or yearly" });
     }
 
-    const amount = getPlanAmount(planType);
+    const normalizedTier = normalizeTier(tier);
+    if (!["basic", "pro", "elite"].includes(normalizedTier)) {
+      return res.status(400).json({ message: "tier must be basic, pro, or elite" });
+    }
+
+    const amount = getPlanAmount(normalizedTier, planType);
+    if (amount == null) {
+      return res.status(400).json({ message: "Invalid tier/planType" });
+    }
     const donationPercentage = req.user?.charityPercentage ?? 0;
     const charityId = req.user?.selectedCharity || null;
 
@@ -43,6 +61,7 @@ exports.createSubscription = async (req, res) => {
 
     const subscription = await Subscription.create({
       userId: req.user._id,
+      tier: normalizedTier,
       planType,
       startDate: start,
       endDate: end,
@@ -57,7 +76,7 @@ exports.createSubscription = async (req, res) => {
       userId: req.user._id,
       type: "subscription",
       amount,
-      currency: "INR",
+      currency: "USD",
       status: "completed",
       provider: "manual",
       ref: { subscriptionId: subscription._id },
@@ -90,7 +109,7 @@ exports.createSubscription = async (req, res) => {
             userId: req.user._id,
             type: "donation",
             amount: donationAmount,
-            currency: "INR",
+            currency: "USD",
             status: "completed",
             provider: "manual",
             ref: { subscriptionId: subscription._id, charityId },

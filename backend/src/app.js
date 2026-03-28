@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const mongoose = require("mongoose");
 
 const authRoutes = require("./routes/auth.routes");
 const userRoutes = require("./routes/user.routes");
@@ -15,6 +16,17 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// If MongoDB is down, fail fast with a clean 503 instead of hanging buffered ops
+// or crashing the whole process.
+app.use((req, res, next) => {
+  if (req.path === "/") return next();
+  if (req.path.startsWith("/api/health")) return next();
+  if (mongoose.connection.readyState !== 1) {
+    return res.status(503).json({ message: "Database unavailable. Please try again in a moment." });
+  }
+  next();
+});
 
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);

@@ -5,7 +5,7 @@ It is written to be "decision-complete" (what lives where, which fields are cano
 
 ## Money + Eligibility Rules
 
-- Currency: INR (stored as integer `Number` in rupees in the current codebase).
+- Currency: USD (stored as integer `Number` in dollars in the current codebase).
 - Eligibility: active subscription at draw time AND at least 5 scores within the last 30 days.
 - Automatic entry: eligible users are inserted into `DrawEntry` when a draw is run.
 - Prize pool tiers: 5-match 40% (jackpot, rolls over if no winner), 4-match 35%, 3-match 25%.
@@ -186,7 +186,7 @@ Fields:
 - `userId: ObjectId -> User` (required)
 - `type: "subscription" | "donation" | "payout"` (required)
 - `amount: number` (required)
-- `currency: string` (default: `"INR"`)
+- `currency: string` (default: `"USD"`)
 - `status: "pending" | "completed" | "failed"` (default: `"pending"`)
 - `provider: "stripe" | "manual"` (default: `"stripe"`)
 - `providerId: string` (optional)
@@ -226,4 +226,3 @@ Indexes:
 ## Operational Scripts
 
 - Backfill/migrations: `npm run backfill` (adds missing Winner.tier, Charity.icon defaults, and creates the fallback charity).
-

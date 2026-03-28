@@ -39,16 +39,8 @@ const AdminDraw = () => {
   }, []);
 
   const upcoming = useMemo(() => {
-    const now = Date.now();
     return draws
-      .filter((d) => ["upcoming", "pending"].includes(String(d.status || "").toLowerCase()))
-      .filter((d) => {
-        const raw = d.drawAt || d.drawDate;
-        if (!raw) return true;
-        const t = new Date(raw).getTime();
-        if (Number.isNaN(t)) return true;
-        return t >= now - 24 * 60 * 60 * 1000;
-      })
+      .filter((d) => ["upcoming", "pending", "scheduled"].includes(String(d.status || "").toLowerCase()))
       .sort((a, b) => {
         const aRaw = a.drawAt || a.drawDate;
         const bRaw = b.drawAt || b.drawDate;
@@ -95,6 +87,21 @@ const AdminDraw = () => {
       await load();
     } catch (err) {
       setError(err?.response?.data?.message || "Run failed");
+    } finally {
+      setBusyId("");
+    }
+  };
+
+  const removeDraw = async (drawId) => {
+    setError("");
+    setNotice("");
+    setBusyId(`del:${drawId}`);
+    try {
+      await api.delete(`/admin/draws/${drawId}`);
+      setNotice("Draw deleted.");
+      await load();
+    } catch (err) {
+      setError(err?.response?.data?.message || "Delete failed");
     } finally {
       setBusyId("");
     }
@@ -183,6 +190,14 @@ const AdminDraw = () => {
                       >
                         {busyId === d._id ? "Running..." : "Run now"}
                       </button>
+                      <button
+                        className="btn secondary"
+                        type="button"
+                        onClick={() => removeDraw(d._id)}
+                        disabled={busyId === `del:${d._id}` || busyId === d._id}
+                      >
+                        {busyId === `del:${d._id}` ? "Deleting..." : "Delete"}
+                      </button>
                     </div>
                   </div>
                 );
@@ -218,6 +233,16 @@ const AdminDraw = () => {
                         {n}
                       </span>
                     ))}
+                  </div>
+                  <div className="admin-actions" style={{ marginTop: 10 }}>
+                    <button
+                      className="btn secondary"
+                      type="button"
+                      onClick={() => removeDraw(d._id)}
+                      disabled={busyId === `del:${d._id}`}
+                    >
+                      {busyId === `del:${d._id}` ? "Deleting..." : "Delete"}
+                    </button>
                   </div>
                 </div>
               ))}

@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../components/Toast";
 
 const Signup = () => {
+  const toast = useToast();
   const { signup, loading } = useAuth();
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: "", email: "", password: "" });
-  const [error, setError] = useState("");
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -14,12 +15,16 @@ const Signup = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    if (form.password.length < 5) {
+      toast.error("Password must be at least 5 characters.");
+      return;
+    }
     try {
       await signup(form);
-      navigate("/admin-login");
+      toast.success("Welcome! Your account has been created.");
+      navigate("/");
     } catch (err) {
-      setError(err?.response?.data?.message || "Signup failed");
+      toast.error(err?.response?.data?.message || "Signup failed. Please try again.");
     }
   };
 
@@ -64,9 +69,9 @@ const Signup = () => {
               value={form.password}
               onChange={handleChange}
               required
+              minLength={5}
             />
           </label>
-          {error && <div className="badge error-badge">{error}</div>}
           <button className="btn frost-sapphire" type="submit" disabled={loading}>
             {loading ? "Creating..." : "Sign Up"}
           </button>

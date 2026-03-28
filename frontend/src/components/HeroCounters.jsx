@@ -1,34 +1,41 @@
 import { useEffect, useRef, useState } from "react";
 import api from "../api/client";
 
-const useCountUp = (target, duration = 1600) => {
-  const [current, setCurrent] = useState(0);
-  const rafRef = useRef(null);
-  const startRef = useRef(null);
-
+const CounterItem = ({ target, label, prefix = "" }) => {
+  const elRef = useRef(null);
+  
   useEffect(() => {
+    let start = null;
+    const duration = 1600;
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    
     if (reduced) {
-      setCurrent(target);
+      if (elRef.current) elRef.current.innerText = `${prefix}${target.toLocaleString("en-US")}`;
       return;
     }
 
-    startRef.current = null;
     const step = (timestamp) => {
-      if (!startRef.current) startRef.current = timestamp;
-      const elapsed = timestamp - startRef.current;
-      const progress = Math.min(1, elapsed / duration);
-      setCurrent(Math.floor(progress * target));
-      if (progress < 1) rafRef.current = requestAnimationFrame(step);
+      if (!start) start = timestamp;
+      const progress = Math.min(1, (timestamp - start) / duration);
+      const current = Math.floor(progress * target);
+      if (elRef.current) {
+        elRef.current.innerText = `${prefix}${current.toLocaleString("en-US")}`;
+      }
+      if (progress < 1) requestAnimationFrame(step);
     };
-    rafRef.current = requestAnimationFrame(step);
+    requestAnimationFrame(step);
+  }, [target, prefix]);
 
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [target, duration]);
-
-  return current;
+  return (
+    <div className="hero-counter">
+      <span className="hero-counter-value">
+        <span className="functional-number" ref={elRef}>
+          {prefix}0
+        </span>
+      </span>
+      <span className="hero-counter-label">{label}</span>
+    </div>
+  );
 };
 
 const HeroCounters = () => {
@@ -50,33 +57,14 @@ const HeroCounters = () => {
     load();
   }, []);
 
-  const donated = useCountUp(stats.donatedTotal);
-  const players = useCountUp(stats.players);
-  const charities = useCountUp(stats.charities);
-
   return (
     <div className="hero-counters">
-      <div className="hero-counter">
-        <span className="hero-counter-value">
-          <span className="functional-number">Rs {donated.toLocaleString("en-IN")}</span>
-        </span>
-        <span className="hero-counter-label">Donated</span>
-      </div>
-      <div className="hero-counter">
-        <span className="hero-counter-value">
-          <span className="functional-number">{players.toLocaleString("en-IN")}</span>
-        </span>
-        <span className="hero-counter-label">Players</span>
-      </div>
-      <div className="hero-counter">
-        <span className="hero-counter-value">
-          <span className="functional-number">{charities.toLocaleString("en-IN")}</span>
-        </span>
-        <span className="hero-counter-label">Charities</span>
-      </div>
+      <CounterItem target={stats.donatedTotal} label="Donated" prefix="$" />
+      <CounterItem target={stats.players} label="Players" />
+      <CounterItem target={stats.charities} label="Charities" />
     </div>
   );
 };
 
-export default HeroCounters;
 
+export default HeroCounters;

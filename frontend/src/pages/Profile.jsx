@@ -3,7 +3,12 @@ import { Link, useNavigate } from "react-router-dom";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
-const formatINR = (n) => `Rs ${Number(n || 0).toLocaleString("en-IN")}`;
+const formatINR = (n) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(Number(n || 0));
 
 const Profile = () => {
   const { user, logout } = useAuth();
@@ -304,4 +309,3 @@ const ProfileSkeleton = () => (
 );
 
 export default Profile;
-

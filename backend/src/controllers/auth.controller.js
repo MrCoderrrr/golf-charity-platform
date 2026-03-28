@@ -11,15 +11,21 @@ const generateToken = (id) => {
 exports.signup = async (req, res) => {
   try {
     const { name, email, password } = req.body;
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    const normalizedName = String(name || "").trim();
 
-    const userExists = await User.findOne({ email });
+    if (!normalizedName || !normalizedEmail || !password) {
+      return res.status(400).json({ message: "Name, email and password are required" });
+    }
+
+    const userExists = await User.findOne({ email: normalizedEmail });
     if (userExists) {
       return res.status(400).json({ message: "User already exists" });
     }
 
     const user = await User.create({
-      name,
-      email,
+      name: normalizedName,
+      email: normalizedEmail,
       password,
     });
 
@@ -40,8 +46,9 @@ exports.signup = async (req, res) => {
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
+    const normalizedEmail = String(email || "").trim().toLowerCase();
 
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email: normalizedEmail });
     if (user?.banned) {
       return res.status(403).json({ message: "Account banned" });
     }

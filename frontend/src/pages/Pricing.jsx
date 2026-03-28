@@ -28,18 +28,38 @@ const tiers = [
   },
 ];
 
+const STRIPE_PAYMENT_LINKS = {
+  basic: {
+    monthly: "https://buy.stripe.com/test_7sYeVc6cq0Fy78acFn4Ni01",
+    yearly: "https://buy.stripe.com/test_28E4gybwKag88ce9tb4Ni02",
+  },
+  pro: {
+    monthly: "https://buy.stripe.com/test_7sY28q58m0Fy646eNv4Ni03",
+    yearly: "https://buy.stripe.com/test_6oUcN4gR43RKeAC9tb4Ni04",
+  },
+  elite: {
+    monthly: "https://buy.stripe.com/test_dRm14mcAO8808ce7l34Ni05",
+    yearly: "https://buy.stripe.com/test_7sY00i0S64VO8cebBj4Ni06",
+  },
+};
+
 const Pricing = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [status, setStatus] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loadingKey, setLoadingKey] = useState("");
   const [billing, setBilling] = useState({
     Basic: "monthly",
     Pro: "monthly",
     Elite: "monthly",
   });
 
-  const formatINR = (n) => `₹${n.toLocaleString("en-IN")}`;
+  const formatINR = (n) =>
+    new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(Number(n || 0));
 
   return (
     <div className="pricing-shell">
@@ -113,27 +133,33 @@ const Pricing = () => {
               </ul>
               <button
                 className="btn primary-trace plan-cta"
-                disabled={loading}
+                disabled={Boolean(loadingKey)}
                 onClick={async () => {
                   setStatus("");
                   if (!user) {
                     navigate("/login");
                     return;
                   }
-                  setLoading(true);
+                  const tierKey = String(tier.name || "").toLowerCase();
+                  const planType = billing[tier.name] === "yearly" ? "yearly" : "monthly";
+                  const url = STRIPE_PAYMENT_LINKS?.[tierKey]?.[planType] || "";
+                  if (!url) {
+                    setStatus("Missing payment link for this plan.");
+                    return;
+                  }
+
+                  setLoadingKey(`${tierKey}:${planType}`);
                   try {
-                    const planType = billing[tier.name] === "yearly" ? "yearly" : "monthly";
-                    await api.post("/subscriptions", { planType });
-                    setStatus("Subscription activated.");
-                    navigate("/profile");
+                    await api.post("/subscriptions", { planType, tier: tierKey });
+                    window.location.href = url;
                   } catch (err) {
                     setStatus(err?.response?.data?.message || "Subscription failed.");
                   } finally {
-                    setLoading(false);
+                    setLoadingKey("");
                   }
                 }}
               >
-                {loading ? "Processing..." : "Select"}
+                {loadingKey ? "Redirecting..." : "Select"}
               </button>
             </div>
           );

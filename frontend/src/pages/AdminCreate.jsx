@@ -1,27 +1,32 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../components/Toast";
 
 const AdminCreate = () => {
+  const toast = useToast();
   const navigate = useNavigate();
   const { bootstrapAdmin, loading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [adminKey, setAdminKey] = useState("");
-  const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
+    if (password.length < 5) {
+      toast.error("Password must be at least 5 characters.");
+      return;
+    }
     try {
       const data = await bootstrapAdmin({ email, password, adminKey });
       if (!data || data.role !== "admin") {
-        setError("Unable to create admin. Try again.");
+        toast.error("Unable to create admin. Please check the admin key.");
         return;
       }
+      toast.success("Admin account created successfully!");
       navigate("/admin/dashboard", { replace: true });
     } catch (err) {
-      setError(err?.response?.data?.message || "Admin creation failed");
+      toast.error(err?.response?.data?.message || "Admin creation failed. Check your admin key.");
     }
   };
 
@@ -54,8 +59,9 @@ const AdminCreate = () => {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="12345"
+              placeholder="min 5 characters"
               required
+              minLength={5}
             />
           </label>
           <label className="auth-label">
@@ -68,8 +74,6 @@ const AdminCreate = () => {
               required
             />
           </label>
-
-          {error && <div className="badge error-badge">{error}</div>}
 
           <button className="btn frost-sapphire" type="submit" disabled={loading}>
             {loading ? "Creating..." : "Create admin"}
@@ -85,4 +89,3 @@ const AdminCreate = () => {
 };
 
 export default AdminCreate;
-

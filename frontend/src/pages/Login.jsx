@@ -1,22 +1,23 @@
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../components/Toast";
 
 const Login = () => {
+  const toast = useToast();
   const { login, loading } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError("");
     try {
       await login(email, password);
+      toast.success("Login successful! Welcome back.");
       navigate("/");
     } catch (err) {
-      setError(err?.response?.data?.message || "Login failed");
+      toast.error(err?.response?.data?.message || "Login failed. Please check your credentials.");
     }
   };
 
@@ -51,7 +52,6 @@ const Login = () => {
               required
             />
           </label>
-          {error && <div className="badge error-badge">{error}</div>}
           <button className="btn frost-sapphire" type="submit" disabled={loading}>
             {loading ? "Signing in..." : "Login"}
           </button>

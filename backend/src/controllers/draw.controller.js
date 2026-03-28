@@ -13,6 +13,12 @@ const User = require("../models/user.model");
 const AuditLog = require("../models/auditLog.model");
 
 const DAYS_30_MS = 30 * 24 * 60 * 60 * 1000;
+const PRIZE_POOL_SHARE = (() => {
+  const raw = Number(process.env.PRIZE_POOL_SHARE);
+  if (!Number.isFinite(raw)) return 0.7;
+  // 0.0 - 1.0
+  return Math.min(1, Math.max(0, raw));
+})();
 
 const parseDate = (value) => {
   if (!value) return null;
@@ -141,7 +147,15 @@ exports.runDraw = async (req, res) => {
     const year = Number(req.body?.year) || drawDate.getUTCFullYear();
 
     const result = await withOptionalTransaction(async (session) => {
-      const existing = await Draw.findOne({ month, year }).session(session || null);
+      // If multiple draws exist in the same month, pick the earliest upcoming for this month/year.
+      // If none are upcoming, we fall back to the most recent draw for this month/year.
+      const existing =
+        (await Draw.findOne({ month, year, status: { $in: ["upcoming", "pending"] } })
+          .sort({ drawDate: 1, createdAt: 1 })
+          .session(session || null)) ||
+        (await Draw.findOne({ month, year, status: { $ne: "cancelled" } })
+          .sort({ drawDate: -1, createdAt: -1 })
+          .session(session || null));
       if (existing && existing.status === "completed") {
         const e = new Error("Draw already completed for this month/year");
         e.statusCode = 409;
@@ -180,11 +194,113 @@ exports.runDraw = async (req, res) => {
       const rolloverAmount = toMoney(lastPool?.rolloverAmount || 0);
       const rolloverFromDrawId = lastPool?.drawId || null;
 
-      const activeSubs = await Subscription.find({
-        status: "active",
-        startDate: { $lte: drawDate },
-        endDate: { $gte: drawDate },
-      }).session(session || null);
+      // Active subscriptions (one per user) for this draw window.
+      // We use a pipeline to de-dupe duplicates and compute the money split:
+      // collected -> charity (min 10%) -> remaining -> prize pool share + platform revenue.
+      const subAgg = await Subscription.aggregate([
+        {
+          $match: {
+            status: "active",
+            startDate: { $lte: drawDate },
+            endDate: { $gte: drawDate },
+          },
+        },
+        { $sort: { createdAt: -1, _id: -1 } },
+        { $group: { _id: "$userId", doc: { $first: "$$ROOT" } } },
+        { $replaceRoot: { newRoot: "$doc" } },
+        {
+          $lookup: {
+            from: "users",
+            localField: "userId",
+            foreignField: "_id",
+            as: "user",
+          },
+        },
+        { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
+        // Skip banned users from pool/entries (their subs still exist but should not participate).
+        { $match: { $or: [{ "user.banned": { $ne: true } }, { user: null }] } },
+        {
+          $addFields: {
+            // Effective donation %:
+            // - user-level charityPercentage overrides
+            // - fallback to subscription donationPercentage
+            // - clamp min 10, max 100
+            effectiveDonationPct: {
+              $min: [
+                100,
+                {
+                  $max: [
+                    10,
+                    {
+                      $ifNull: [
+                        "$user.charityPercentage",
+                        { $ifNull: ["$donationPercentage", 10] },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+        {
+          $addFields: {
+            donationAmount: {
+              $round: [{ $multiply: ["$amount", { $divide: ["$effectiveDonationPct", 100] }] }, 0],
+            },
+          },
+        },
+        {
+          $addFields: {
+            remainingAmount: { $subtract: ["$amount", "$donationAmount"] },
+          },
+        },
+        {
+          $addFields: {
+            prizePoolPortion: { $round: [{ $multiply: ["$remainingAmount", PRIZE_POOL_SHARE] }, 0] },
+          },
+        },
+        {
+          $addFields: {
+            platformRevenue: { $subtract: ["$remainingAmount", "$prizePoolPortion"] },
+            selectedCharityId: { $ifNull: ["$user.selectedCharity", "$charityId"] },
+          },
+        },
+        {
+          $facet: {
+            rows: [
+              {
+                $project: {
+                  _id: 1, // subscriptionId
+                  userId: 1,
+                  amount: 1,
+                  donationPercentage: "$effectiveDonationPct",
+                  donationAmount: 1,
+                  prizePoolPortion: 1,
+                  platformRevenue: 1,
+                  selectedCharityId: 1,
+                  createdAt: 1,
+                },
+              },
+            ],
+            totals: [
+              {
+                $group: {
+                  _id: null,
+                  subs: { $sum: 1 },
+                  collected: { $sum: "$amount" },
+                  donation: { $sum: "$donationAmount" },
+                  prize: { $sum: "$prizePoolPortion" },
+                  revenue: { $sum: "$platformRevenue" },
+                },
+              },
+            ],
+          },
+        },
+      ]).session(session || null);
+
+      const activeSubs = subAgg?.[0]?.rows || [];
+      const moneyTotals = subAgg?.[0]?.totals?.[0] || null;
 
       if (!activeSubs.length) {
         const pool = await PrizePool.create(
@@ -222,7 +338,18 @@ exports.runDraw = async (req, res) => {
       }
 
       const cutoff = new Date(drawDate.getTime() - DAYS_30_MS);
-      const activeUserIds = activeSubs.map((s) => s.userId);
+
+      // If users explicitly "participated" ahead of time (DrawEntry exists for this draw),
+      // we only consider those users for eligibility/entries. Otherwise, we fall back to
+      // the legacy behavior (auto-enter eligible subscribed users).
+      const explicitEntries = await DrawEntry.find({ drawId: draw._id })
+        .select("userId")
+        .session(session || null);
+
+      const explicitUserIdSet = new Set(explicitEntries.map((e) => String(e.userId)));
+      const activeUserIds = activeSubs
+        .map((s) => s.userId)
+        .filter((id) => (explicitUserIdSet.size ? explicitUserIdSet.has(String(id)) : true));
 
       const eligibleAgg = await Score.aggregate([
         { $match: { userId: { $in: activeUserIds }, date: { $gte: cutoff } } },
@@ -239,58 +366,34 @@ exports.runDraw = async (req, res) => {
       ]).session(session || null);
 
       const eligibleUserIdStrings = new Set(eligibleAgg.map((r) => String(r._id)));
-      const eligibleSubsRaw = activeSubs.filter((s) => eligibleUserIdStrings.has(String(s.userId)));
-
-      // A user should only have one active subscription, but if duplicates exist in the DB,
-      // we must de-dupe here to avoid unique index collisions on (drawId, userId).
-      const subByUserId = new Map();
-      for (const s of eligibleSubsRaw) {
-        const k = String(s.userId);
-        const prev = subByUserId.get(k);
-        const sTime = s?.createdAt ? new Date(s.createdAt).getTime() : 0;
-        const pTime = prev?.createdAt ? new Date(prev.createdAt).getTime() : -1;
-        if (!prev || sTime >= pTime) subByUserId.set(k, s);
-      }
-      const eligibleSubs = Array.from(subByUserId.values());
-
-      const eligibleUsers = await User.find({ _id: { $in: eligibleSubs.map((s) => s.userId) } })
-        .select("selectedCharity charityPercentage")
-        .session(session || null);
-
-      const userById = new Map(eligibleUsers.map((u) => [String(u._id), u]));
+      const eligibleSubs = activeSubs.filter((s) => {
+        const ok = eligibleUserIdStrings.has(String(s.userId));
+        if (!ok) return false;
+        if (!explicitUserIdSet.size) return true;
+        return explicitUserIdSet.has(String(s.userId));
+      });
       const scoreByUserId = new Map(eligibleAgg.map((r) => [String(r._id), r]));
 
       const unassignedCharity = await getOrCreateUnassignedCharity(session);
       const mk = monthKeyUTC(drawDate);
 
-      let jackpotBaseTotal = 0;
+      // Prize pool is funded by ALL active subscriptions, even if a user is not eligible to win.
+      const prizePoolBaseTotal = toMoney(
+        activeSubs.reduce((sum, s) => sum + toMoney(s.prizePoolPortion || 0), 0)
+      );
+      const collectedTotal = toMoney(moneyTotals?.collected || activeSubs.reduce((sum, s) => sum + toMoney(s.amount || 0), 0));
+      const donationTotal = toMoney(moneyTotals?.donation || activeSubs.reduce((sum, s) => sum + toMoney(s.donationAmount || 0), 0));
+      const platformRevenueTotal = toMoney(moneyTotals?.revenue || activeSubs.reduce((sum, s) => sum + toMoney(s.platformRevenue || 0), 0));
+
       const entryDocs = [];
       const donationDocs = [];
       const donationTxDocs = [];
 
-      for (const sub of eligibleSubs) {
-        const u = userById.get(String(sub.userId));
-        const pct = clampDonationPct(sub.donationPercentage ?? u?.charityPercentage ?? 10);
-        const amount = toMoney(sub.amount);
-        const jackpotPortion = toMoney(amount * (1 - pct / 100));
-        const donationAmount = Math.max(0, amount - jackpotPortion);
-
-        jackpotBaseTotal += jackpotPortion;
-
-        const selectedCharityId = u?.selectedCharity || null;
-        const charityIdForDonation = selectedCharityId || unassignedCharity._id;
-
-        const scoreRow = scoreByUserId.get(String(sub.userId));
-
-        entryDocs.push({
-          drawId: draw._id,
-          userId: sub.userId,
-          subscriptionId: sub._id,
-          selectedCharityId,
-          donationPercentage: pct,
-          scoresSnapshot: scoreRow?.scores || [],
-          eligibleAt: drawDate,
-        });
+      // Create donation records for ALL active subscriptions for this month key.
+      for (const sub of activeSubs) {
+        const pct = clampDonationPct(sub.donationPercentage);
+        const donationAmount = toMoney(sub.donationAmount || 0);
+        const charityIdForDonation = sub.selectedCharityId || unassignedCharity._id;
 
         donationDocs.push({
           userId: sub.userId,
@@ -299,12 +402,26 @@ exports.runDraw = async (req, res) => {
           drawId: draw._id,
           monthKey: mk,
           amount: donationAmount,
-          percentage: Math.max(10, Math.min(100, pct || 10)),
+          percentage: pct,
           status: "pending",
         });
       }
 
-      const totalAmount = jackpotBaseTotal + rolloverAmount;
+      // Create draw entries only for eligible users (>= 5 scores in last 30 days).
+      for (const sub of eligibleSubs) {
+        const scoreRow = scoreByUserId.get(String(sub.userId));
+        entryDocs.push({
+          drawId: draw._id,
+          userId: sub.userId,
+          subscriptionId: sub._id,
+          selectedCharityId: sub.selectedCharityId || null,
+          donationPercentage: clampDonationPct(sub.donationPercentage),
+          scoresSnapshot: scoreRow?.scores || [],
+          eligibleAt: drawDate,
+        });
+      }
+
+      const totalAmount = prizePoolBaseTotal + rolloverAmount;
       const fivePool = Math.floor(totalAmount * 0.4);
       const fourPool = Math.floor(totalAmount * 0.35);
       const threePool = Math.max(0, totalAmount - fivePool - fourPool);
@@ -328,16 +445,14 @@ exports.runDraw = async (req, res) => {
           )
         : [];
 
-      const createdDonations = donationDocs.length
-        ? await Donation.insertMany(donationDocs, { session })
-        : [];
+      const createdDonations = donationDocs.length ? await Donation.insertMany(donationDocs, { session }) : [];
 
       for (const d of createdDonations) {
         donationTxDocs.push({
           userId: d.userId,
           type: "donation",
           amount: d.amount,
-          currency: "INR",
+          currency: "USD",
           status: "pending",
           provider: "manual",
           ref: { donationId: d._id, drawId: draw._id, subscriptionId: d.subscriptionId },
@@ -428,7 +543,7 @@ exports.runDraw = async (req, res) => {
           userId: w.userId,
           type: "payout",
           amount: w.prizeAmount,
-          currency: "INR",
+          currency: "USD",
           status: "pending",
           provider: "manual",
           ref: { winnerId: w._id, drawId: draw._id },
@@ -473,6 +588,13 @@ exports.runDraw = async (req, res) => {
               eligibleEntries: createdEntries.length,
               winners: createdWinners.length,
               pools: { totalAmount, fivePool, fourPool, threePool, rolloverAmount: jackpotWon ? 0 : fivePool },
+              money: {
+                collectedTotal,
+                donationTotal,
+                prizePoolBaseTotal,
+                platformRevenueTotal,
+                prizePoolShare: PRIZE_POOL_SHARE,
+              },
             },
             ip: req.ip,
             userAgent: req.get("user-agent"),
@@ -496,6 +618,67 @@ exports.runDraw = async (req, res) => {
   }
 };
 
+// User: participate/enter an upcoming draw.
+// Creates a DrawEntry record (unique per drawId+userId). Eligibility is enforced at entry-time.
+exports.participateInDraw = async (req, res) => {
+  try {
+    const user = req.user;
+    if (!user) return res.status(401).json({ message: "Not authorized" });
+
+    const draw = await Draw.findById(req.params.id);
+    if (!draw) return res.status(404).json({ message: "Draw not found" });
+    if (draw.status === "completed") return res.status(409).json({ message: "Draw already completed" });
+    if (draw.status === "cancelled") return res.status(409).json({ message: "Draw is cancelled" });
+
+    const drawAt = draw.drawDate ? new Date(draw.drawDate) : new Date();
+    const sub = await Subscription.findOne({
+      userId: user._id,
+      status: "active",
+      startDate: { $lte: drawAt },
+      endDate: { $gte: drawAt },
+    }).sort({ createdAt: -1, _id: -1 });
+
+    if (!sub) {
+      return res.status(400).json({ message: "Active subscription required to participate." });
+    }
+
+    const cutoff = new Date(drawAt.getTime() - DAYS_30_MS);
+    const scoreAgg = await Score.aggregate([
+      { $match: { userId: user._id, date: { $gte: cutoff } } },
+      { $sort: { date: -1, _id: -1 } },
+      { $limit: 5 },
+      { $project: { _id: 0, score: 1, playedAt: "$date" } },
+    ]);
+
+    if (!Array.isArray(scoreAgg) || scoreAgg.length < 5) {
+      return res.status(400).json({ message: "Not eligible yet. Add 5 scores in the last 30 days to participate." });
+    }
+
+    const pct = clampDonationPct(user.charityPercentage ?? sub.donationPercentage ?? 10);
+
+    const selectedCharityId = user.selectedCharity || sub.charityId || null;
+
+    const existing = await DrawEntry.findOne({ drawId: draw._id, userId: user._id }).select("_id");
+    if (existing) {
+      return res.json({ message: "Already participated", participated: true });
+    }
+
+    await DrawEntry.create({
+      drawId: draw._id,
+      userId: user._id,
+      subscriptionId: sub._id,
+      selectedCharityId,
+      donationPercentage: pct,
+      scoresSnapshot: scoreAgg,
+      eligibleAt: drawAt,
+    });
+
+    res.status(201).json({ message: "Participated", participated: true });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 // Backward compatible admin endpoint (older frontend/admin tooling).
 exports.createDraw = async (req, res) => {
   return exports.runDraw(req, res);
@@ -503,8 +686,9 @@ exports.createDraw = async (req, res) => {
 
 exports.getDraws = async (req, res) => {
   try {
-    const draws = await Draw.find().sort({ drawDate: -1, createdAt: -1 });
     const user = req.user || null;
+    // "cancelled" is treated as deleted everywhere in the UI.
+    const draws = await Draw.find({ status: { $ne: "cancelled" } }).sort({ drawDate: -1, createdAt: -1 });
 
     if (!user) {
       return res.json(
@@ -546,8 +730,21 @@ exports.getDraws = async (req, res) => {
 
 exports.getNextDraw = async (req, res) => {
   try {
-    const next = await Draw.findOne({ status: { $in: ["upcoming", "pending"] } })
-      .sort({ drawDate: 1, createdAt: 1 });
+    // Prefer the next *future* draw. If a draw is marked upcoming but its date is
+    // already in the past (overdue), we don't want it to "steal" the next draw slot.
+    // Include legacy "scheduled" docs if they exist in the DB.
+    const statuses = ["upcoming", "pending", "scheduled"];
+    const now = new Date();
+
+    let next = await Draw.findOne({ status: { $in: statuses }, drawDate: { $gte: now } }).sort({
+      drawDate: 1,
+      createdAt: 1,
+    });
+
+    if (!next) {
+      // Fallback: return the earliest upcoming even if overdue, so UI can still show something.
+      next = await Draw.findOne({ status: { $in: statuses } }).sort({ drawDate: 1, createdAt: 1 });
+    }
 
     if (!next) return res.json(null);
 
@@ -584,29 +781,23 @@ exports.scheduleDraw = async (req, res) => {
       return res.status(400).json({ message: "Invalid draw date" });
     }
 
-    const existing = await Draw.findOne({ year, month });
-    if (existing && existing.status === "completed") {
-      return res.status(409).json({ message: "Draw already completed for this month/year" });
-    }
-    if (existing && existing.status === "cancelled") {
-      return res.status(409).json({ message: "Draw is cancelled for this month/year" });
+    // No restriction on multiple draws per month: we only prevent duplicate "active" draws at the same exact datetime.
+    const sameMoment = await Draw.findOne({
+      drawDate,
+      status: { $ne: "cancelled" },
+    });
+    if (sameMoment) {
+      return res.status(409).json({ message: "A draw is already scheduled at this exact time." });
     }
 
-    const draw = await Draw.findOneAndUpdate(
-      { year, month },
-      {
-        $set: {
-          year,
-          month,
-          drawDate,
-          status: "upcoming",
-          type,
-          drawNumbers: [],
-        },
-        $setOnInsert: { year, month },
-      },
-      { new: true, upsert: true, runValidators: true, setDefaultsOnInsert: true }
-    );
+    const draw = await Draw.create({
+      year,
+      month,
+      drawDate,
+      status: "upcoming",
+      type,
+      drawNumbers: [],
+    });
 
     await AuditLog.create({
       actorUserId,
@@ -643,6 +834,67 @@ exports.runDrawById = async (req, res) => {
     };
 
     return exports.runDraw(req, res);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Admin: hard-delete a draw and its dependent records so it disappears everywhere.
+exports.deleteDrawById = async (req, res) => {
+  try {
+    const id = req.params.id;
+    const actorUserId = req.user?._id || null;
+
+    const draw = await Draw.findById(id);
+    if (!draw) return res.status(404).json({ message: "Draw not found" });
+
+    await withOptionalTransaction(async (session) => {
+      const drawId = draw._id;
+
+      const [winners, donations] = await Promise.all([
+        Winner.find({ drawId }).select("_id").session(session || null),
+        Donation.find({ drawId }).select("_id").session(session || null),
+      ]);
+
+      const winnerIds = winners.map((w) => w._id);
+      const donationIds = donations.map((d) => d._id);
+
+      // Delete dependent documents first (order matters for human sanity, not DB correctness).
+      await Promise.all([
+        DrawEntry.deleteMany({ drawId }).session(session || null),
+        Winner.deleteMany({ drawId }).session(session || null),
+        Donation.deleteMany({ drawId }).session(session || null),
+        PrizePool.deleteMany({ drawId }).session(session || null),
+      ]);
+
+      // Remove any transactions tied to this draw/winners/donations.
+      await Transaction.deleteMany({
+        $or: [
+          { "ref.drawId": drawId },
+          ...(winnerIds.length ? [{ "ref.winnerId": { $in: winnerIds } }] : []),
+          ...(donationIds.length ? [{ "ref.donationId": { $in: donationIds } }] : []),
+        ],
+      }).session(session || null);
+
+      await Draw.deleteOne({ _id: drawId }).session(session || null);
+
+      await AuditLog.create(
+        [
+          {
+            actorUserId,
+            action: "draw.delete",
+            entityType: "Draw",
+            entityId: drawId,
+            meta: { year: draw.year, month: draw.month, drawDate: draw.drawDate, status: draw.status },
+            ip: req.ip,
+            userAgent: req.get("user-agent"),
+          },
+        ],
+        { session }
+      ).catch(() => null);
+    });
+
+    res.json({ message: "Draw deleted" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

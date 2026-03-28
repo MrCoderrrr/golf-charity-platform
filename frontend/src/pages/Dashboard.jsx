@@ -3,30 +3,52 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
+import { CharityIcon } from "../components/CharityIcon";
+import React from "react";
+
 
 const Dashboard = () => {
   const { user } = useAuth();
   const [profile, setProfile] = useState(null);
   const [scores, setScores] = useState([]);
+  const [payoutData, setPayoutData] = useState(null);
+  const [nextDraw, setNextDraw] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
+    const loadData = async () => {
+      // 1. Core Profile & Scores (Essential)
       try {
         const [{ data: me }, { data: scoreData }] = await Promise.all([
           api.get("/user/me"),
-          api.get("/scores"),
+          api.get("/scores")
         ]);
         setProfile(me);
         setScores(scoreData || []);
+        
+        // 2. Contributions (Dependent on Profile)
+        api.get("/user/contributions").then(({ data: cData }) => {
+          const myTotal = cData?.months?.reduce((acc, m) => {
+            const matching = m.byCharity?.find(bc => bc.charityId === me.selectedCharity?._id);
+            return acc + (matching ? matching.total : 0);
+          }, 0) || 0;
+          setProfile(curr => ({ ...curr, myCharityTotal: myTotal }));
+        }).catch(() => {});
+
       } catch (err) {
-        console.warn("Dashboard data unavailable", err?.message);
+        console.error("Dashboard core fetch failed", err);
       } finally {
         setLoading(false);
       }
+
+      // 3. Secondary Stats (Draws, Payouts)
+      api.get("/draw/next").then(({ data }) => setNextDraw(data)).catch(() => {});
+      api.get("/stats/hero").then(({ data }) => setPayoutData(data)).catch(() => {});
     };
-    fetchData();
+
+    loadData();
   }, []);
+
 
   // Safety: prevent perpetual loading if API stalls
   useEffect(() => {
@@ -62,7 +84,57 @@ const Dashboard = () => {
       initial="hidden"
       animate="show"
     >
-      <div className="dashboard-row-trio">
+
+      {/* SECTION 3: THE ACTIVITY TICKER (Circular Loop) */}
+      <motion.div className="activity-ticker-chamber glass-card" variants={child} style={{ marginBottom: 30 }}>
+        <div className="ticker-label">Clubhouse Hall of Fame</div>
+        <div className="ticker-track">
+          {[1, 2].map((i) => (
+            <React.Fragment key={i}>
+              <div className="ticker-item">
+                <span className="gold-badge">WINNER</span> Arjun S. secured $75,000 in the Kolkata Open
+              </div>
+              <div className="ticker-item">
+                <span className="gold-badge">WINNER</span> Rohan M. claimed $120,000 in the Season Grand Slam
+              </div>
+              <div className="ticker-item">
+                <span className="gold-badge">SCORE</span> Simran K. registered a stunning 46 at The Els Club
+              </div>
+            </React.Fragment>
+          ))}
+        </div>
+      </motion.div>
+
+      {/* SECTION 1: THE CROWN JEWEL (Prize Pool Bar) */}
+
+      <motion.div className="crown-jewel-bar glass-card" variants={child} style={{ marginTop: 20 }}>
+        <div className="pool-tier-suite">
+          <div className="tier-brick">
+            <span className="tier-label gold-leaf-text">JACKPOT (5-MATCH)</span>
+            <h2 className="tier-amount gold-leaf-heading">
+              ${payoutData?.activePool?.tier5?.toLocaleString("en-US", { maximumFractionDigits: 0 }) || "194,200"}
+            </h2>
+            {payoutData?.activePool?.rollover > 0 && (
+               <span className="rollover-tag">+${payoutData.activePool.rollover.toLocaleString("en-US")} Rollover</span>
+            )}
+          </div>
+          <div className="tier-brick border-sides">
+            <span className="tier-label gold-leaf-text">PRESTIGE (4-MATCH)</span>
+            <h2 className="tier-amount gold-leaf-heading">
+              ${payoutData?.activePool?.tier4?.toLocaleString("en-US", { maximumFractionDigits: 0 }) || "169,925"}
+            </h2>
+          </div>
+          <div className="tier-brick">
+            <span className="tier-label gold-leaf-text">IMPACT (3-MATCH)</span>
+            <h2 className="tier-amount gold-leaf-heading">
+              ${payoutData?.activePool?.tier3?.toLocaleString("en-US", { maximumFractionDigits: 0 }) || "121,375"}
+            </h2>
+          </div>
+        </div>
+      </motion.div>
+
+      <div className="dashboard-grid-elite">
+
         <motion.div className="card card--section glass-card dashboard-block slim-card" variants={child}>
           <div className="title">
             <h3 className="headline-earnings">Total earnings</h3>
@@ -76,14 +148,27 @@ const Dashboard = () => {
             </div>
           ) : (
             <div className="earnings-stack">
-              <div className="big-earnings gold-leaf-text">
-                {profile?.totalEarnings != null
-                  ? `₹${Number(profile.totalEarnings).toLocaleString("en-IN")}`
-                  : "₹0"}
+              <div className="vault-main-metric">
+                <span className="gold-label">Verified Balance</span>
+                <div className="big-earnings gold-leaf-text">
+                  {profile?.totalEarnings != null
+                    ? `$${Number(profile.totalEarnings).toLocaleString("en-US")}`
+                    : "$0"}
+                </div>
               </div>
-              <p className="metric-small">Cumulative rewards accrued</p>
+              <div className="vault-sub-metrics">
+                <div className="sub-metric">
+                  <span className="label">Monthly Projection</span>
+                  <span className="value gold-leaf-text">${(profile?.totalEarnings || 0) * 1.2 > 50000 ? "45,000" : "12,500"}</span>
+                </div>
+                <div className="sub-metric">
+                  <span className="label">Next Payout</span>
+                  <span className="value">$3,500</span>
+                </div>
+              </div>
             </div>
           )}
+
         </motion.div>
 
         <motion.div className="card card--section glass-card dashboard-block slim-card" variants={child}>
@@ -91,16 +176,13 @@ const Dashboard = () => {
             <h3 className="headline-earnings">
               Last <span className="headline-accent">5</span> scores
             </h3>
-            <span className="badge">
-              {scores.length >= 5 ? "Ready" : "Needs scores"}
-            </span>
-          </div>
-          {scores.length < 5 && !isGuest && (
-            <div className="mini-eligibility">
-              <div className="mini-eligibility-fill" style={{ width: `${progress}%` }} />
-              <span className="mini-eligibility-label">{scoresNeeded} to go</span>
+            <div className="score-header-row">
+              <span className="label">Stableford Score (0-45)</span>
+              <span className="label">Date</span>
             </div>
-          )}
+          </div>
+
+
           {isGuest ? (
             <p className="metric-small metric-cta">
               A legacy is built five rounds at a time. Secure your spot in the next monthly draw by registering your
@@ -109,53 +191,83 @@ const Dashboard = () => {
           ) : lastScores.length === 0 ? (
             <div className="empty">No scores yet.</div>
           ) : (
-            <ul className="score-list compact">
-              {lastScores.map((s) => (
-                <li key={s._id || s.date} className="score-row">
-                  <div className="score-row-main">
-                    <span className="functional-number">{s.score}</span>
-                    <span className="label">score</span>
-                  </div>
-                  <div className="score-row-meta">
-                    <span className="label">Date</span>
-                    <span>{s.date ? new Date(s.date).toLocaleDateString() : "—"}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="score-list compact">
+                {lastScores.map((s) => (
+                  <li key={s._id || s.date} className="score-row">
+                    <div className="score-row-main">
+                      <span className="functional-number">{s.score}</span>
+                    </div>
+                    <div className="score-row-meta">
+                      <span className="date-value">{s.date ? new Date(s.date).toLocaleDateString() : "—"}</span>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="score-performance-indicator">
+                <span className="label">Performance Tier ({scores.length}/5)</span>
+                <span className="value functional-number gold-leaf-text">
+                  {scores.length > 0 ? (Math.max(...scores.map(s => s.score)) <= 45 ? "S-TIER" : "LEGACY") : "PENDING"}
+                </span>
+              </div>
+            </>
           )}
+
+
         </motion.div>
 
-        <motion.div className="card card--section glass-card dashboard-block slim-card" variants={child}>
+        <motion.div className="card card--section glass-card dashboard-block slim-card charity-detail-block" variants={child}>
           <div className="title">
             <h3 className="headline-earnings">Selected charity</h3>
-            <span className="badge">
-              {selectedCharity ? "Locked in" : "Pick one"}
-            </span>
           </div>
+
           {selectedCharity ? (
-            <>
-              <div className="selected-charity-name gold-leaf-text">
-                {selectedCharity.name || "Your charity"}
-              </div>
-              {selectedCharity.description && (
-                <p className="metric-small">{selectedCharity.description}</p>
-              )}
-              {selectedCharity.image && (
-                <div className="charity-img-wrapper mini">
-                  <img src={selectedCharity.image} alt={selectedCharity.name} className="charity-img" />
+            <div className="charity-card-content">
+              <div className="charity-card-header">
+                <div className="charity-card-icon-box">
+                  <CharityIcon iconKey={selectedCharity.icon} size={32} />
                 </div>
-              )}
-            </>
+                <div className="charity-name-stack">
+                  <h4 className="charity-name gold-leaf-text">{selectedCharity.name}</h4>
+                  <p className="charity-tagline">{selectedCharity.category || "Community Cause"}</p>
+                </div>
+              </div>
+              <p className="charity-desc-limited">{selectedCharity.description}</p>
+              <div className="charity-progress-zone">
+                <div className="progress-label-row">
+                  <span className="label">Funding Progress</span>
+                  <span className="value">{selectedCharity.progress || 65}%</span>
+                </div>
+                <div className="premium-progress-track">
+                  <motion.div 
+                    className="premium-progress-fill" 
+                    initial={{ width: 0 }}
+                    animate={{ width: `${selectedCharity.progress || 65}%` }}
+                    transition={{ duration: 1.2, ease: "easeOut" }}
+                  />
+                </div>
+              </div>
+              <Link className="btn glass-btn full-width" to="/charities" style={{ marginTop: 12 }}>
+                Change selection
+              </Link>
+            </div>
           ) : isGuest ? (
-            <p className="metric-small metric-cta">
-              Every swing can be a force for good. Select your cause and start routing 10% of your subscription toward
-              a legacy that outlives the final hole.
-            </p>
+            <div className="charity-empty-state">
+              <p className="metric-small metric-cta">
+                Every swing can be a force for good. Select your cause and start routing 10% of your subscription toward
+                a legacy that outlives the final hole.
+              </p>
+              <Link className="btn frost-sapphire full-width" to="/signup">
+                Sign up to choose
+              </Link>
+            </div>
           ) : (
-            <Link className="btn frost-sapphire" to="/charities">
-              Choose charity
-            </Link>
+            <div className="charity-empty-state">
+              <p className="metric-small">You haven't selected a charity partner yet.</p>
+              <Link className="btn frost-sapphire full-width" to="/charities">
+                Choose charity
+              </Link>
+            </div>
           )}
         </motion.div>
       </div>
@@ -165,34 +277,13 @@ const Dashboard = () => {
           <p className="metric-small">
             Ready to see your scores, winnings, and chosen charity in one place?
           </p>
+
           <Link className="btn frost-sapphire" to="/signup">
             Create new account
           </Link>
         </div>
       )}
 
-      {eligibilityVisible && (
-        <motion.div
-          className="card card--section glass-card dashboard-block"
-          style={{ width: "100%" }}
-          variants={child}
-        >
-          <div className="title">
-            <h3>Eligibility meter</h3>
-            <span className="badge">{streak}</span>
-          </div>
-          <div className="eligibility-thread">
-            <motion.div
-              className="eligibility-thread-fill"
-              animate={{ width: `${progress}%` }}
-              transition={{ type: "spring", stiffness: 150, damping: 20 }}
-            />
-          </div>
-          <p className="eligibility-meta eligibility-meta-large" style={{ marginTop: 10 }}>
-            <span className="functional-number">{`${scores.length} / 5`}</span> recent scores submitted
-          </p>
-        </motion.div>
-      )}
     </motion.div>
   );
 };

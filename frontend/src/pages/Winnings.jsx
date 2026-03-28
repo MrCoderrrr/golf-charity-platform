@@ -169,7 +169,7 @@ const Winnings = () => {
                 </span>
               </div>
               <div className="winning-amount gold-leaf-text">
-                Rs {Number(w.prizeAmount || 0).toLocaleString("en-IN")}
+                ${Number(w.prizeAmount || 0).toLocaleString("en-US")}
               </div>
               <div className="winning-meta">
                 <span>

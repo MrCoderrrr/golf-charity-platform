@@ -36,7 +36,8 @@ const drawSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-drawSchema.index({ year: 1, month: 1 }, { unique: true });
 drawSchema.index({ status: 1, drawDate: 1 });
+// Allow multiple draws per month/year; we only index for query speed.
+drawSchema.index({ year: 1, month: 1, drawDate: 1 });
 
 module.exports = mongoose.model("Draw", drawSchema);
