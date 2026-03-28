@@ -1,0 +1,9 @@
+input {
+  border: 1px solid #ccc;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+button {
+  cursor: pointer;
+}
