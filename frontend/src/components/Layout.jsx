@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useEffect, useState } from "react";
 import golfBall from "../golfball.png";
+import Footer from "./Footer";
 
 const Layout = ({ children }) => {
   const { user, logout } = useAuth();
@@ -46,7 +47,6 @@ const Layout = ({ children }) => {
           <Link to="/draws">Draws</Link>
           {user && <Link to="/winnings">Winnings</Link>}
           <Link to="/pricing">Pricing</Link>
-          {user && user.role === "admin" && <Link to="/admin">Admin</Link>}
           {user ? (
             <Link to="/profile" className="btn secondary">
               Profile
@@ -56,9 +56,8 @@ const Layout = ({ children }) => {
           )}
         </div>
       </nav>
-      <main className="layout">
-        {children}
-      </main>
+      <main className="layout">{children}</main>
+      <Footer />
     </div>
   );
 };

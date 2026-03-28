@@ -21,7 +21,8 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "dev": "nodemon index.js"
+    "dev": "nodemon index.js",
+    "backfill": "node scripts/backfill.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

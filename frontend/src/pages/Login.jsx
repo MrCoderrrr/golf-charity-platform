@@ -55,7 +55,7 @@ const Login = () => {
           <button className="btn frost-sapphire" type="submit" disabled={loading}>
             {loading ? "Signing in..." : "Login"}
           </button>
-          <Link to="/admin" className="btn glass-btn" style={{ marginTop: 10 }}>
+          <Link to="/admin-login" className="btn glass-btn" style={{ marginTop: 10 }}>
             Sign in as admin
           </Link>
         </form>

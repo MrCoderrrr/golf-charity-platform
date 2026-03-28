@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import api from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 const tiers = [
   {
@@ -26,6 +29,10 @@ const tiers = [
 ];
 
 const Pricing = () => {
+  const { user } = useAuth();
+  const navigate = useNavigate();
+  const [status, setStatus] = useState("");
+  const [loading, setLoading] = useState(false);
   const [billing, setBilling] = useState({
     Basic: "monthly",
     Pro: "monthly",
@@ -104,11 +111,40 @@ const Pricing = () => {
                   <li key={perk}>{perk}</li>
                 ))}
               </ul>
-              <button className="btn primary-trace plan-cta">Select</button>
+              <button
+                className="btn primary-trace plan-cta"
+                disabled={loading}
+                onClick={async () => {
+                  setStatus("");
+                  if (!user) {
+                    navigate("/login");
+                    return;
+                  }
+                  setLoading(true);
+                  try {
+                    const planType = billing[tier.name] === "yearly" ? "yearly" : "monthly";
+                    await api.post("/subscriptions", { planType });
+                    setStatus("Subscription activated.");
+                    navigate("/profile");
+                  } catch (err) {
+                    setStatus(err?.response?.data?.message || "Subscription failed.");
+                  } finally {
+                    setLoading(false);
+                  }
+                }}
+              >
+                {loading ? "Processing..." : "Select"}
+              </button>
             </div>
           );
         })}
       </div>
+
+      {status && (
+        <div className="card glass-card" style={{ marginTop: 14, padding: 14 }}>
+          <div className="badge">{status}</div>
+        </div>
+      )}
     </div>
   );
 };

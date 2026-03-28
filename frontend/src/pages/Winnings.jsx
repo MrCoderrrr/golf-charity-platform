@@ -1,79 +1,46 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "../api/client";
-
-const sampleWinnings = [
-  {
-    _id: "w1",
-    drawId: { month: 3, year: 2026 },
-    prizeAmount: 50000,
-    matchCount: 5,
-    status: "pending",
-    verified: false,
-  },
-  {
-    _id: "w2",
-    drawId: { month: 2, year: 2026 },
-    prizeAmount: 18000,
-    matchCount: 4,
-    status: "paid",
-    verified: true,
-  },
-  {
-    _id: "w3",
-    drawId: { month: 1, year: 2026 },
-    prizeAmount: 6500,
-    matchCount: 3,
-    status: "pending",
-    verified: false,
-  },
-  {
-    _id: "w4",
-    drawId: { month: 12, year: 2025 },
-    prizeAmount: 12000,
-    matchCount: 4,
-    status: "paid",
-    verified: true,
-  },
-  {
-    _id: "w5",
-    drawId: { month: 11, year: 2025 },
-    prizeAmount: 8200,
-    matchCount: 3,
-    status: "pending",
-    verified: false,
-  },
-  {
-    _id: "w6",
-    drawId: { month: 10, year: 2025 },
-    prizeAmount: 30000,
-    matchCount: 5,
-    status: "paid",
-    verified: true,
-  },
-];
+import { useAuth } from "../context/AuthContext";
 
 const Winnings = () => {
-  const [winnings, setWinnings] = useState(sampleWinnings);
-  const [uploading, setUploading] = useState(false);
+  const { user } = useAuth();
+
+  const [winnings, setWinnings] = useState([]);
+  const [uploadingId, setUploadingId] = useState("");
   const [filter, setFilter] = useState("all"); // all | grand | prestige | impact
   const [statusFilter, setStatusFilter] = useState("all"); // all | pending | paid
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
   const load = async () => {
+    if (!user) {
+      setWinnings([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError("");
     try {
       const { data } = await api.get("/winners");
-      setWinnings(data);
-    } catch {
-      console.warn("Using sample winnings (API unreachable)");
+      setWinnings(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Failed to load winnings.");
+      setWinnings([]);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
     load();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id]);
 
   const handleUpload = async (winnerId, file) => {
-    if (!file) return;
-    setUploading(true);
+    if (!file || !winnerId) return;
+    setUploadingId(winnerId);
+    setError("");
     const form = new FormData();
     form.append("winnerId", winnerId);
     form.append("file", file);
@@ -82,15 +49,10 @@ const Winnings = () => {
         headers: { "Content-Type": "multipart/form-data" },
       });
       await load();
-    } catch {
-      // demo feedback
-      setWinnings((prev) =>
-        prev.map((w) =>
-          w._id === winnerId ? { ...w, proofImage: URL.createObjectURL(file) } : w
-        )
-      );
+    } catch (err) {
+      setError(err?.response?.data?.message || "Proof upload failed.");
     } finally {
-      setUploading(false);
+      setUploadingId("");
     }
   };
 
@@ -101,28 +63,57 @@ const Winnings = () => {
     return "impact";
   };
 
-  const filtered = winnings.filter((w) => {
-    const tierOk = filter === "all" ? true : tierFor(w) === filter;
-    const statusOk =
-      statusFilter === "all"
-        ? true
-        : statusFilter === "paid"
-        ? w.status === "paid"
-        : w.status === "pending";
-    return tierOk && statusOk;
-  });
+  const filtered = useMemo(() => {
+    return winnings.filter((w) => {
+      const tierOk = filter === "all" ? true : tierFor(w) === filter;
+      const statusOk =
+        statusFilter === "all"
+          ? true
+          : statusFilter === "paid"
+          ? w.status === "paid"
+          : w.status === "pending";
+      return tierOk && statusOk;
+    });
+  }, [winnings, filter, statusFilter]);
 
   const isPaid = (w) => w.status === "paid";
 
+  if (!user) {
+    return (
+      <div className="winnings-shell">
+        <div className="card glass-card empty">Sign in to view your winnings.</div>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="winnings-shell">
+        <div className="card glass-card">Loading winnings...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="winnings-shell">
+      {error && (
+        <div className="card glass-card" style={{ padding: 14, marginBottom: 12 }}>
+          <div className="badge error-badge">{error}</div>
+          <div style={{ marginTop: 10 }}>
+            <button className="btn secondary" type="button" onClick={load}>
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card card--section glass-card winnings-hero">
         <div className="winnings-hero-header">
           <h3 className="gold-leaf-heading gold-font">My Winnings</h3>
           <div className="winnings-total">Total wins: {winnings.length}</div>
         </div>
         <p className="winnings-sub">
-          Track your draw victories, upload proof, and celebrate every verified win.
+          Track your draw victories, upload proof, and verify every win.
         </p>
 
         <div className="winning-filters">
@@ -144,15 +135,6 @@ const Winnings = () => {
         </div>
       </div>
 
-      <div className="terms-block">
-        <h3 className="terms-heading">Winning Types</h3>
-        <ul className="terms-list">
-          <li><strong>Grand Legacy (5-number):</strong> 40% of prize pool; only jackpot tier; rolls over if nobody matches all 5.</li>
-          <li><strong>Prestige Match (4-number):</strong> 35% of prize pool split evenly among 4-number winners; no rollover.</li>
-          <li><strong>Impact Match (3-number):</strong> 25% of prize pool for frequent micro-wins; proof upload required before payout.</li>
-        </ul>
-      </div>
-
       <div className="winning-status-filters">
         <span className="label">Status</span>
         {["all", "paid", "pending"].map((key) => (
@@ -167,8 +149,8 @@ const Winnings = () => {
         ))}
       </div>
 
-      {(filtered.length === 0) ? (
-        <div className="card glass-card empty">No winnings yet—keep swinging!</div>
+      {filtered.length === 0 ? (
+        <div className="card glass-card empty">No winnings yet.</div>
       ) : (
         <div className="winnings-grid">
           {filtered.map((w) => (
@@ -179,7 +161,11 @@ const Winnings = () => {
                   <div className="functional-number">{`${w.drawId?.month}/${w.drawId?.year}`}</div>
                 </div>
                 <span className="badge subtle">
-                  {tierFor(w) === "grand" ? "Grand Legacy" : tierFor(w) === "prestige" ? "Prestige Match" : "Impact Match"}
+                  {tierFor(w) === "grand"
+                    ? "Grand Legacy"
+                    : tierFor(w) === "prestige"
+                    ? "Prestige Match"
+                    : "Impact Match"}
                 </span>
               </div>
               <div className="winning-amount gold-leaf-text">
@@ -215,12 +201,12 @@ const Winnings = () => {
                 </div>
               ) : (
                 <label className="btn secondary" style={{ marginTop: 12, alignSelf: "center" }}>
-                  Upload proof
+                  {uploadingId === w._id ? "Uploading..." : "Upload proof"}
                   <input
                     type="file"
                     style={{ display: "none" }}
-                    onChange={(e) => handleUpload(w._id, e.target.files[0])}
-                    disabled={uploading}
+                    onChange={(e) => handleUpload(w._id, e.target.files?.[0])}
+                    disabled={Boolean(uploadingId)}
                   />
                 </label>
               )}
@@ -233,3 +219,4 @@ const Winnings = () => {
 };
 
 export default Winnings;
+

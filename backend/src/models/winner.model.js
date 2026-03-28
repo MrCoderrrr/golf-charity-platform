@@ -17,6 +17,10 @@ const winnerSchema = new mongoose.Schema(
       enum: [3, 4, 5],
       required: true,
     },
+    tier: {
+      type: String,
+      enum: ["grand_legacy", "prestige", "impact"],
+    },
     prizeAmount: {
       type: Number,
       required: true,
@@ -33,8 +37,19 @@ const winnerSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    verifiedAt: {
+      type: Date,
+    },
+    paidAt: {
+      type: Date,
+    },
   },
   { timestamps: true }
 );
+
+winnerSchema.index({ drawId: 1, userId: 1 }, { unique: true });
+winnerSchema.index({ drawId: 1, matchCount: 1 });
+winnerSchema.index({ userId: 1, createdAt: -1 });
+winnerSchema.index({ status: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Winner", winnerSchema);

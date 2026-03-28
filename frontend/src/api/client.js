@@ -8,6 +8,14 @@ api.interceptors.request.use((config) => {
   const stored = localStorage.getItem("user");
   const method = (config.method || "").toLowerCase();
   const requiresAuth = ["post", "put", "patch", "delete"].includes(method);
+  const url = config.url || "";
+
+  // Auth endpoints must be callable without an existing token.
+  const isPublicAuth =
+    method === "post" &&
+    (url === "/auth/login" ||
+      url === "/auth/signup" ||
+      url === "/auth/bootstrap-admin");
 
   if (stored) {
     const parsed = JSON.parse(stored);
@@ -17,7 +25,7 @@ api.interceptors.request.use((config) => {
     }
   }
 
-  if (requiresAuth) {
+  if (requiresAuth && !isPublicAuth) {
     window.location.href = "/login";
     throw new axios.Cancel("Auth required");
   }

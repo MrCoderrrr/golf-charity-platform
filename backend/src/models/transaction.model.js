@@ -10,6 +10,12 @@ const transactionSchema = new mongoose.Schema(
     amount: {
       type: Number,
       required: true,
+      min: 0,
+    },
+    currency: {
+      type: String,
+      default: "INR",
+      trim: true,
     },
     type: {
       type: String,
@@ -21,11 +27,25 @@ const transactionSchema = new mongoose.Schema(
       enum: ["pending", "completed", "failed"],
       default: "pending",
     },
-    paymentId: {
+    provider: {
       type: String,
+      enum: ["stripe", "manual"],
+      default: "stripe",
+    },
+    providerId: {
+      type: String,
+    },
+    ref: {
+      subscriptionId: { type: mongoose.Schema.Types.ObjectId, ref: "Subscription" },
+      donationId: { type: mongoose.Schema.Types.ObjectId, ref: "Donation" },
+      winnerId: { type: mongoose.Schema.Types.ObjectId, ref: "Winner" },
+      drawId: { type: mongoose.Schema.Types.ObjectId, ref: "Draw" },
     },
   },
   { timestamps: true }
 );
+
+transactionSchema.index({ providerId: 1 });
+transactionSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Transaction", transactionSchema);

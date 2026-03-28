@@ -1,6 +1,8 @@
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import Layout from "./components/Layout";
+import AdminLayout from "./components/AdminLayout";
+import AdminRoute from "./components/AdminRoute";
 import Hero from "./components/Hero";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -9,12 +11,21 @@ import Scores from "./pages/Scores";
 import Charities from "./pages/Charities";
 import Draws from "./pages/Draws";
 import Winnings from "./pages/Winnings";
-import Admin from "./pages/Admin";
+import AdminPortal from "./pages/admin/AdminPortal";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminUsers from "./pages/admin/AdminUsers";
+import AdminCharity from "./pages/admin/AdminCharity";
+import AdminDraw from "./pages/admin/AdminDraw";
+import AdminDocuments from "./pages/admin/AdminDocuments";
+import AdminLogin from "./pages/AdminLogin";
+import AdminCreate from "./pages/AdminCreate";
 import Profile from "./pages/Profile";
 import Pricing from "./pages/Pricing";
+import { useAuth } from "./context/AuthContext";
 
 const App = () => {
   const location = useLocation();
+  const { user } = useAuth();
 
   const pageVariants = {
     initial: { opacity: 0, y: 20, scale: 1.02 },
@@ -95,15 +106,52 @@ const App = () => {
           }
         />
         <Route
-          path="/admin"
+          path="/admin-login"
           element={
-            <Layout>
+            <AdminLayout showNav={false}>
               <Page>
-                <Admin />
+                {user?.role === "admin" ? (
+                  <Navigate to="/admin/dashboard" replace />
+                ) : (
+                  <AdminLogin />
+                )}
               </Page>
-            </Layout>
+            </AdminLayout>
           }
         />
+        <Route
+          path="/admin-create"
+          element={
+            <AdminLayout showNav={false}>
+              <Page>
+                {user?.role === "admin" ? (
+                  <Navigate to="/admin/dashboard" replace />
+                ) : (
+                  <AdminCreate />
+                )}
+              </Page>
+            </AdminLayout>
+          }
+        />
+        <Route
+          path="/admin/*"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <Page>
+                  <AdminPortal />
+                </Page>
+              </AdminLayout>
+            </AdminRoute>
+          }
+        >
+          <Route index element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="dashboard" element={<AdminDashboard />} />
+          <Route path="users" element={<AdminUsers />} />
+          <Route path="charity" element={<AdminCharity />} />
+          <Route path="draw" element={<AdminDraw />} />
+          <Route path="documents" element={<AdminDocuments />} />
+        </Route>
         <Route
           path="/profile"
           element={

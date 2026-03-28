@@ -28,6 +28,14 @@ const subscriptionSchema = new mongoose.Schema(
     paymentId: {
       type: String,
     },
+    provider: {
+      type: String,
+      enum: ["stripe", "manual"],
+      default: "stripe",
+    },
+    stripeSubscriptionId: {
+      type: String,
+    },
     amount: {
       type: Number,
       required: true,
@@ -39,8 +47,16 @@ const subscriptionSchema = new mongoose.Schema(
       max: 100,
       default: 0,
     },
+    charityId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Charity",
+    },
   },
   { timestamps: true }
 );
+
+subscriptionSchema.index({ createdAt: -1 });
+subscriptionSchema.index({ userId: 1, status: 1 });
+subscriptionSchema.index({ charityId: 1, createdAt: -1 });
 
 module.exports = mongoose.model("Subscription", subscriptionSchema);

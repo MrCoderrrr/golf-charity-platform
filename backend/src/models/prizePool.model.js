@@ -11,6 +11,11 @@ const prizePoolSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    tierPercent: {
+      five: { type: Number, default: 40 },
+      four: { type: Number, default: 35 },
+      three: { type: Number, default: 25 },
+    },
     fiveMatchPool: {
       type: Number,
       required: true,
@@ -23,6 +28,10 @@ const prizePoolSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    rolloverFromDrawId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Draw",
+    },
     rolloverAmount: {
       type: Number,
       default: 0,
@@ -30,5 +39,7 @@ const prizePoolSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+prizePoolSchema.index({ drawId: 1 }, { unique: true });
 
 module.exports = mongoose.model("PrizePool", prizePoolSchema);

@@ -1,10 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-
-const heroStats = [
-  { label: "Donated", value: 234000, prefix: "₹" },
-  { label: "Players", value: 1200 },
-  { label: "Charities", value: 82 },
-];
+import api from "../api/client";
 
 const useCountUp = (target, duration = 1600) => {
   const [current, setCurrent] = useState(0);
@@ -24,9 +19,7 @@ const useCountUp = (target, duration = 1600) => {
       const elapsed = timestamp - startRef.current;
       const progress = Math.min(1, elapsed / duration);
       setCurrent(Math.floor(progress * target));
-      if (progress < 1) {
-        rafRef.current = requestAnimationFrame(step);
-      }
+      if (progress < 1) rafRef.current = requestAnimationFrame(step);
     };
     rafRef.current = requestAnimationFrame(step);
 
@@ -39,26 +32,51 @@ const useCountUp = (target, duration = 1600) => {
 };
 
 const HeroCounters = () => {
-  const animatedStats = heroStats.map((stat) => ({
-    ...stat,
-    current: useCountUp(stat.value),
-  }));
+  const [stats, setStats] = useState({ donatedTotal: 0, players: 0, charities: 0 });
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const { data } = await api.get("/stats/hero");
+        setStats({
+          donatedTotal: Number(data?.donatedTotal) || 0,
+          players: Number(data?.players) || 0,
+          charities: Number(data?.charities) || 0,
+        });
+      } catch {
+        setStats({ donatedTotal: 0, players: 0, charities: 0 });
+      }
+    };
+    load();
+  }, []);
+
+  const donated = useCountUp(stats.donatedTotal);
+  const players = useCountUp(stats.players);
+  const charities = useCountUp(stats.charities);
 
   return (
     <div className="hero-counters">
-      {animatedStats.map((stat) => (
-        <div key={stat.label} className="hero-counter">
-          <span className="hero-counter-value">
-            <span className="functional-number">
-              {stat.prefix ?? ""}
-              {stat.current.toLocaleString()}
-            </span>
-          </span>
-          <span className="hero-counter-label">{stat.label}</span>
-        </div>
-      ))}
+      <div className="hero-counter">
+        <span className="hero-counter-value">
+          <span className="functional-number">Rs {donated.toLocaleString("en-IN")}</span>
+        </span>
+        <span className="hero-counter-label">Donated</span>
+      </div>
+      <div className="hero-counter">
+        <span className="hero-counter-value">
+          <span className="functional-number">{players.toLocaleString("en-IN")}</span>
+        </span>
+        <span className="hero-counter-label">Players</span>
+      </div>
+      <div className="hero-counter">
+        <span className="hero-counter-value">
+          <span className="functional-number">{charities.toLocaleString("en-IN")}</span>
+        </span>
+        <span className="hero-counter-label">Charities</span>
+      </div>
     </div>
   );
 };
 
 export default HeroCounters;
+

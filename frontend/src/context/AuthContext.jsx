@@ -34,13 +34,27 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const bootstrapAdmin = async (payload) => {
+    setLoading(true);
+    try {
+      const { data } = await api.post("/auth/bootstrap-admin", payload);
+      localStorage.setItem("user", JSON.stringify(data));
+      setUser(data);
+      localStorage.setItem("adminKeyValid", "true");
+      return data;
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("user");
+    localStorage.removeItem("adminKeyValid");
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, signup, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, signup, bootstrapAdmin, logout }}>
       {children}
     </AuthContext.Provider>
   );

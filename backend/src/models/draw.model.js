@@ -10,9 +10,16 @@ const drawSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    drawDate: {
+      type: Date,
+      required: true,
+    },
     drawNumbers: {
       type: [Number],
-      required: true,
+      required: function () {
+        return this.status === "completed";
+      },
+      default: [],
     },
     type: {
       type: String,
@@ -21,11 +28,15 @@ const drawSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "completed"],
-      default: "pending",
+      // "pending" is kept as a backwards-compatible alias for "upcoming".
+      enum: ["upcoming", "pending", "completed", "cancelled"],
+      default: "upcoming",
     },
   },
   { timestamps: true }
 );
+
+drawSchema.index({ year: 1, month: 1 }, { unique: true });
+drawSchema.index({ status: 1, drawDate: 1 });
 
 module.exports = mongoose.model("Draw", drawSchema);

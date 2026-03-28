@@ -1,142 +1,184 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import api from "../api/client";
+import { useAuth } from "../context/AuthContext";
+import { CharityIcon } from "../components/CharityIcon";
 
-const sampleNames = [
-  "Fairway Futures",
-  "Birdies for Relief",
-  "Green Horizons",
-  "Youth Caddies Fund",
-  "Links for Life",
-  "Fore the Planet",
-  "Swing Scholars",
-  "Caddie Uplift",
-  "Course to Career",
-  "Play It Forward",
-  "Impact Fairways",
-  "Par for Purpose",
-];
+const formatINR = (n) => {
+  const value = Number(n) || 0;
+  return `Rs ${value.toLocaleString("en-IN")}`;
+};
 
-const sampleIcons = ["★", "♠", "♥", "♣", "♦", "✦", "✧", "✿", "❖", "☀", "☂", "♞"];
+const iconKeyFor = (c) => String(c?.icon || "").trim() || "star";
 
-const sampleCharities = Array.from({ length: 12 }).map((_, idx) => ({
-  _id: `demo-${idx + 1}`,
-  name: sampleNames[idx] || `Charity ${idx + 1}`,
-  description: "Curated impact program for golf-driven giving.",
-  icon: sampleIcons[idx % sampleIcons.length],
-  collectedLastMonth: 5000 + idx * 250,
-}));
-
-const formatINR = (n) =>
-  typeof n === "number" ? `₹${Number(n).toLocaleString("en-IN")}` : "₹0 · data pending";
+const pctProgress = (current, goal) => {
+  const c = Number(current) || 0;
+  const g = Number(goal) || 0;
+  if (g <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((c / g) * 100)));
+};
 
 const Charities = () => {
-  const [charities, setCharities] = useState(sampleCharities);
-  const [selected, setSelected] = useState(sampleCharities[0]?._id || "");
-  const [selectedCharity, setSelectedCharity] = useState(sampleCharities[0] || null);
-  const [contributionPct, setContributionPct] = useState(10);
-  const [contributionAmount, setContributionAmount] = useState(0);
-  const [scores, setScores] = useState([]);
-  const [searchTerm, setSearchTerm] = useState("");
+  const { user } = useAuth();
 
-  const iconFor = (c) => c?.icon || (c?.name ? c.name.charAt(0).toUpperCase() : "★");
+  const [charities, setCharities] = useState([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [profile, setProfile] = useState(null);
+  const [subscription, setSubscription] = useState(null);
 
-  const loadData = async () => {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [search, setSearch] = useState("");
+
+  const load = async () => {
+    setLoading(true);
+    setError("");
     try {
-      const [
-        { data: charityData },
-        { data: profile },
-        { data: subscription },
-        { data: scoreData },
-      ] = await Promise.all([
-        api.get("/charities"),
-        api.get("/user/me"),
-        api.get("/subscriptions"),
-        api.get("/scores"),
-      ]);
+      const charityReq = api.get("/charities");
+      const meReq = user ? api.get("/user/me") : Promise.resolve({ data: null });
+      const subReq = user ? api.get("/subscriptions") : Promise.resolve({ data: null });
 
-      setScores(scoreData || []);
-      const dataset = Array.isArray(charityData) && charityData.length ? charityData : sampleCharities;
-      setCharities(dataset);
+      const [{ data: charityData }, { data: me }, { data: sub }] =
+        await Promise.all([charityReq, meReq, subReq]);
 
-      const selectedId = profile?.selectedCharity?._id || dataset[0]?._id || "";
-      setSelected(selectedId);
-      const selectedObj = dataset.find((c) => c._id === selectedId) || dataset[0] || null;
-      setSelectedCharity(selectedObj);
+      const list = Array.isArray(charityData) ? charityData : [];
+      setCharities(list);
+      setProfile(me);
+      setSubscription(sub);
 
-      const pct = profile?.charityPercentage || 10;
-      setContributionPct(pct);
-      const planValue =
-        subscription?.planType === "yearly"
-          ? 2999
-          : subscription?.planType === "monthly"
-          ? 1499
-          : 0;
-      setContributionAmount(((planValue * pct) / 100).toFixed(0));
-    } catch {
-      setCharities(sampleCharities);
-      setSelected(sampleCharities[0]?._id || "");
-      setSelectedCharity(sampleCharities[0] || null);
-      setContributionPct(10);
-      setContributionAmount(0);
-      setScores([]);
+      const initialSelected =
+        me?.selectedCharity?._id || list[0]?._id || "";
+      setSelectedId(initialSelected);
+    } catch (err) {
+      setError(err?.response?.data?.message || "Failed to load charities.");
+      setCharities([]);
+      setProfile(null);
+      setSubscription(null);
+      setSelectedId("");
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, []);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id]);
 
-  const handleQuickSelect = async (charityId) => {
-    setSelected(charityId);
+  const selected = useMemo(
+    () => charities.find((c) => c._id === selectedId) || null,
+    [charities, selectedId]
+  );
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return charities;
+    return charities.filter((c) => {
+      const name = String(c?.name || "").toLowerCase();
+      const desc = String(c?.description || "").toLowerCase();
+      return name.includes(q) || desc.includes(q);
+    });
+  }, [charities, search]);
+
+  const donationPct = Math.max(10, Math.min(100, Number(profile?.charityPercentage) || 10));
+  const planAmount = Number(subscription?.amount) || 0;
+  const myContribution = Math.round((planAmount * donationPct) / 100);
+  const contributionLabel =
+    subscription?.planType === "yearly" ? "/yr" : subscription?.planType === "monthly" ? "/mo" : "";
+
+  const selectCharity = async (id) => {
+    setSelectedId(id);
+    if (!user) return;
     try {
-      await api.put("/user/select-charity", { charityId });
-      await loadData();
+      await api.put("/user/select-charity", { charityId: id });
+      const { data } = await api.get("/user/me");
+      setProfile(data);
     } catch {
-      /* ignore failures */
+      // show selection locally even if request fails, but keep banner visible
+      setError("Could not save your selected charity. Retry.");
     }
   };
 
-  const selectedObj = charities.find((c) => c._id === selected) || selectedCharity || null;
-  const otherCharities = charities.filter((c) => c._id !== (selectedObj?._id || ""));
-
-  const metric = (c) =>
-    c && c.collectedLastMonth != null ? formatINR(c.collectedLastMonth) : "₹0 · data pending";
-
-  const filteredCharities = otherCharities.filter((c) => {
-    if (!searchTerm.trim()) return true;
-    const q = searchTerm.toLowerCase();
-    return (c?.name || "").toLowerCase().includes(q) || (c?.description || "").toLowerCase().includes(q);
-  });
+  if (loading) {
+    return <div className="card glass-card">Loading charities...</div>;
+  }
 
   return (
-    <div className="grid" style={{ gap: "18px" }}>
-      {selectedObj && (
+    <div className="grid" style={{ gap: 18 }}>
+      {error && (
+        <div className="card glass-card" style={{ padding: 14 }}>
+          <div className="badge error-badge">{error}</div>
+          <div style={{ marginTop: 10 }}>
+            <button className="btn secondary" type="button" onClick={load}>
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selected && (
         <section className="selected-charity-hero selected-charity-hero--split no-image">
           <div className="selected-charity-content">
-            <div className="title">
-              <h3>{selectedObj.name}</h3>
+            <div className="selected-charity-header">
+              <div className="selected-charity-icon-name">
+                <div className="selected-charity-symbol">
+                  <CharityIcon iconKey={iconKeyFor(selected)} size={40} />
+                </div>
+                <h3 className="gold-leaf-heading">{selected.name}</h3>
+              </div>
               <span className="badge">Selected</span>
             </div>
-            <div className="selected-charity-symbol">{iconFor(selectedObj)}</div>
-            <p className="selected-charity-lede">{selectedObj.description}</p>
-            <div className="selected-charity-metrics">
-              <div>
+
+            <div className="selected-charity-metrics inline">
+              <div className="metric-pair">
+                <span className="hero-counter-label">Total donated</span>
                 <span className="hero-counter-value">
-                  <span className="functional-number">{metric(selectedObj)}</span>
-                </span>
-                <span className="hero-counter-label">Last month</span>
-              </div>
-              <div>
-                <span className="hero-counter-value metric-highlight">
                   <span className="functional-number">
-                    {contributionAmount > 0
-                      ? `₹${Number(contributionAmount).toLocaleString("en-IN")}/mo`
-                      : "Data pending"}
+                    {formatINR(selected.totalDonations || 0)}
                   </span>
                 </span>
-                <span className="hero-counter-label">Your impact</span>
+              </div>
+              <div className="metric-pair">
+                <span className="hero-counter-label">Your share</span>
+                <span className="hero-counter-value metric-highlight">
+                  <span className="functional-number">
+                    {planAmount > 0 ? `${formatINR(myContribution)}${contributionLabel}` : "Subscribe to contribute"}
+                  </span>
+                </span>
               </div>
             </div>
+
+            {selected.description && (
+              <p className="selected-charity-lede selected-charity-lede-inline">
+                {selected.description}
+              </p>
+            )}
+
+            <div className="charity-progress">
+              <div className="progress-row">
+                <span className="label">Goal</span>
+                <span className="functional-number">
+                  {formatINR(selected.goalAmount || 0)}
+                </span>
+              </div>
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{
+                    width: `${pctProgress(selected.totalDonations || 0, selected.goalAmount || 0)}%`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {!user && (
+              <div className="charity-action" style={{ marginTop: 14 }}>
+                <Link className="btn frost-sapphire" to="/signup">
+                  Sign up to select
+                </Link>
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -148,27 +190,57 @@ const Charities = () => {
             <input
               type="search"
               placeholder="Search by name or cause"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
           </div>
         </div>
-        {filteredCharities.length === 0 ? (
-          <div className="empty">No charities match that search.</div>
+
+        {filtered.length === 0 ? (
+          <div className="empty">No charities available.</div>
         ) : (
           <div className="charity-grid">
-            {filteredCharities.map((charity) => (
-              <div key={charity._id} className="charity-card glass-card charity-card--split no-image">
+            {filtered.map((c) => (
+              <div key={c._id} className="charity-card glass-card charity-card--split no-image">
                 <div className="charity-body charity-body--left">
-                  <div className="title">
-                    <div className="charity-symbol">{iconFor(charity)}</div>
-                    <h4>{charity.name}</h4>
-                    <span className="badge subtle">{metric(charity)}</span>
+                    <div className="charity-card-top">
+                    <div className="charity-symbol padded">
+                      <CharityIcon iconKey={iconKeyFor(c)} size={34} />
+                    </div>
+                    <div className="charity-card-meta">
+                      <h4 className="gold-leaf-heading">{c.name}</h4>
+                      <p className="charity-desc tight">{c.description || "No description."}</p>
+                      <div className="charity-amount functional-number">
+                        {formatINR(c.totalDonations || 0)}
+                      </div>
+                    </div>
                   </div>
-                  <p className="charity-desc">{charity.description}</p>
-                  <button className="btn secondary" onClick={() => handleQuickSelect(charity._id)}>
-                    Select
-                  </button>
+
+                  <div className="charity-progress">
+                    <div className="progress-row">
+                      <span className="label">Goal</span>
+                      <span className="functional-number">
+                        {formatINR(c.goalAmount || 0)}
+                      </span>
+                    </div>
+                    <div className="progress-track">
+                      <div
+                        className="progress-fill"
+                        style={{
+                          width: `${pctProgress(c.totalDonations || 0, c.goalAmount || 0)}%`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="charity-action">
+                    <button className="btn secondary" onClick={() => selectCharity(c._id)}>
+                      Select
+                    </button>
+                    <Link className="btn frost-sapphire" to="/pricing">
+                      Subscribe
+                    </Link>
+                  </div>
                 </div>
               </div>
             ))}

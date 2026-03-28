@@ -1,13 +1,9 @@
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
 const userSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: true,
-      trim: true,
-    },
+    name: { type: String, required: true, trim: true },
 
     email: {
       type: String,
@@ -17,73 +13,46 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
 
-    password: {
-      type: String,
-      required: true,
-      minlength: 6,
-    },
+    // Temporary: allow "12345" for admin bootstrap. Revert to 6+ when bootstrap is removed.
+    password: { type: String, required: true, minlength: 5 },
 
-    role: {
-      type: String,
-      enum: ["user", "admin"],
-      default: "user",
-    },
+    role: { type: String, enum: ["user", "admin"], default: "user" },
 
-    // 🔗 Relations (important for future)
-    selectedCharity: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Charity",
-    },
+    // Admin ops / account status
+    banned: { type: Boolean, default: false },
 
-    charityPercentage: {
-      type: Number,
-      default: 10,
-      min: 10,
-      max: 100,
-    },
+    selectedCharity: { type: mongoose.Schema.Types.ObjectId, ref: "Charity" },
 
-    isSubscribed: {
-      type: Boolean,
-      default: false,
-    },
+    charityPercentage: { type: Number, default: 10, min: 10, max: 100 },
 
-    subscriptionId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Subscription",
-    },
+    // Cached subscription state (authoritative record is Subscription documents)
+    isSubscribed: { type: Boolean, default: false },
+    subscriptionId: { type: mongoose.Schema.Types.ObjectId, ref: "Subscription" },
 
-    totalEarnings: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-
+    // Cached aggregates (authoritative records are Winner/Transaction documents)
+    totalEarnings: { type: Number, default: 0, min: 0 },
     wins: {
       jackpot: { type: Number, default: 0, min: 0 },
       fourPass: { type: Number, default: 0, min: 0 },
       threePass: { type: Number, default: 0, min: 0 },
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-
-// 🔐 Hash password before saving
+// Hash password before saving
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
-
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
   next();
 });
 
-
-// 🔑 Compare password method
+// Compare password method
 userSchema.methods.comparePassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+  return bcrypt.compare(enteredPassword, this.password);
 };
 
+userSchema.index({ role: 1, banned: 1, createdAt: -1 });
 
 module.exports = mongoose.model("User", userSchema);

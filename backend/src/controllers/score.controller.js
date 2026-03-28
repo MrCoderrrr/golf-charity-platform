@@ -1,5 +1,33 @@
 const Score = require("../models/score.model");
 
+const DAYS_30_MS = 30 * 24 * 60 * 60 * 1000;
+
+const parseDate = (value) => {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+};
+
+const getRecentScoresForEligibility = async (userId, now = new Date()) => {
+  const cutoff = new Date(now.getTime() - DAYS_30_MS);
+  return Score.find({ userId, date: { $gte: cutoff } })
+    .sort({ date: -1, _id: -1 })
+    .limit(5);
+};
+
+const getScoreEligibilityMeta = async (userId, now = new Date()) => {
+  const cutoff = new Date(now.getTime() - DAYS_30_MS);
+  const count = await Score.countDocuments({ userId, date: { $gte: cutoff } });
+  return {
+    windowDays: 30,
+    cutoff: cutoff.toISOString(),
+    recentScoreCount: count,
+    requiredRecentScores: 5,
+    hasEnoughScores: count >= 5,
+  };
+};
+
 exports.addScore = async (req, res) => {
   try {
     let { score, date } = req.body;
@@ -9,12 +37,8 @@ exports.addScore = async (req, res) => {
       return res.status(400).json({ message: "Score must be between 1 and 45 (Stableford)." });
     }
 
-    if (!date) {
-      return res.status(400).json({ message: "Date is required." });
-    }
-
-    const parsedDate = new Date(date);
-    if (isNaN(parsedDate.getTime())) {
+    const parsedDate = parseDate(date);
+    if (!parsedDate) {
       return res.status(400).json({ message: "Invalid date format." });
     }
 
@@ -24,17 +48,14 @@ exports.addScore = async (req, res) => {
       date: parsedDate,
     });
 
-    // keep only latest 5 by creation time
-    const extra = await Score.find({ userId: req.user._id })
-      .sort({ createdAt: -1 })
-      .skip(5)
-      .select("_id");
-    if (extra.length) {
-      await Score.deleteMany({ _id: { $in: extra.map((s) => s._id) } });
-    }
+    // Return the most recent scores that count toward eligibility:
+    // 5 scores within the last 30 days (no destructive deletes).
+    const latest = await getRecentScoresForEligibility(req.user._id);
 
-    const latest = await Score.find({ userId: req.user._id })
-      .sort({ createdAt: -1 });
+    if (req.query?.meta === "1" || req.query?.meta === "true") {
+      const eligibility = await getScoreEligibilityMeta(req.user._id);
+      return res.status(201).json({ scores: latest, eligibility });
+    }
 
     res.status(201).json(latest);
   } catch (err) {
@@ -44,8 +65,12 @@ exports.addScore = async (req, res) => {
 
 exports.getScores = async (req, res) => {
   try {
-    const scores = await Score.find({ userId: req.user._id })
-      .sort({ createdAt: -1 });
+    const scores = await getRecentScoresForEligibility(req.user._id);
+
+    if (req.query?.meta === "1" || req.query?.meta === "true") {
+      const eligibility = await getScoreEligibilityMeta(req.user._id);
+      return res.json({ scores, eligibility });
+    }
 
     res.json(scores);
   } catch (err) {

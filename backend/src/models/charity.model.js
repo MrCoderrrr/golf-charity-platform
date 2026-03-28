@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
 
 const charitySchema = new mongoose.Schema(
   {
@@ -9,6 +9,16 @@ const charitySchema = new mongoose.Schema(
     },
     description: {
       type: String,
+    },
+    icon: {
+      type: String,
+      default: "*",
+      trim: true,
+    },
+    goalAmount: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
     image: {
       type: String,
@@ -21,4 +31,7 @@ const charitySchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+charitySchema.index({ name: "text", description: "text" });
+
 module.exports = mongoose.model("Charity", charitySchema);
+

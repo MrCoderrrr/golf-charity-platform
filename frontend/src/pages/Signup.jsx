@@ -17,7 +17,7 @@ const Signup = () => {
     setError("");
     try {
       await signup(form);
-      navigate("/");
+      navigate("/admin-login");
     } catch (err) {
       setError(err?.response?.data?.message || "Signup failed");
     }
@@ -70,6 +70,9 @@ const Signup = () => {
           <button className="btn frost-sapphire" type="submit" disabled={loading}>
             {loading ? "Creating..." : "Sign Up"}
           </button>
+          <Link to="/admin-login" className="btn glass-btn" style={{ marginTop: 10 }}>
+            Sign up as admin
+          </Link>
         </form>
         <p className="auth-footer">
           Already registered?{" "}
