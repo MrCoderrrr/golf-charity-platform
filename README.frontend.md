@@ -1,4 +1,4 @@
-# Frontend Guide (Vite + React)
+6# Frontend Guide (Vite + React)
 
 ## Quick start
 - `cd frontend`

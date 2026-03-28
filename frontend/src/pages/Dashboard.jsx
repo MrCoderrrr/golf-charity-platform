@@ -17,37 +17,68 @@ const Dashboard = () => {
 
   useEffect(() => {
     const loadData = async () => {
-      // 1. Core Profile & Scores (Essential)
-      try {
-        const [{ data: me }, { data: scoreData }] = await Promise.all([
-          api.get("/user/me"),
-          api.get("/scores")
-        ]);
-        setProfile(me);
-        setScores(scoreData || []);
-        
-        // 2. Contributions (Dependent on Profile)
-        api.get("/user/contributions").then(({ data: cData }) => {
-          const myTotal = cData?.months?.reduce((acc, m) => {
-            const matching = m.byCharity?.find(bc => bc.charityId === me.selectedCharity?._id);
-            return acc + (matching ? matching.total : 0);
-          }, 0) || 0;
-          setProfile(curr => ({ ...curr, myCharityTotal: myTotal }));
-        }).catch(() => {});
+      // Public stats (safe for guests)
+      api.get("/draws/next").then(({ data }) => setNextDraw(data)).catch(() => {});
+      api.get("/stats/hero").then(({ data }) => setPayoutData(data)).catch(() => {});
 
+      if (!user) {
+        // Guests can view the site; dashboard will render guest CTA blocks.
+        setLoading(false);
+        return;
+      }
+
+      // User-specific: fetch profile + scores, but don't let one failure block the other.
+      try {
+        const [meRes, scoresRes] = await Promise.allSettled([
+          api.get("/user/me"),
+          api.get("/scores"),
+        ]);
+
+        const me = meRes.status === "fulfilled" ? meRes.value.data : null;
+        const scoreData = scoresRes.status === "fulfilled" ? scoresRes.value.data : [];
+
+        if (me) {
+          setProfile(me);
+
+          // Defensive: if API ever returns only an id for selectedCharity, hydrate it.
+          if (me.selectedCharity && typeof me.selectedCharity === "string") {
+            api
+              .get("/charities")
+              .then(({ data: list }) => {
+                const arr = Array.isArray(list) ? list : [];
+                const hit = arr.find((c) => String(c?._id) === String(me.selectedCharity));
+                if (hit) setProfile((curr) => ({ ...(curr || me), selectedCharity: hit }));
+              })
+              .catch(() => {});
+          }
+        }
+        setScores(Array.isArray(scoreData) ? scoreData : []);
+
+        // Contributions (dependent on having profile + selectedCharity)
+        if (me) {
+          api
+            .get("/user/contributions")
+            .then(({ data: cData }) => {
+              const charityId = me.selectedCharity?._id ? String(me.selectedCharity._id) : null;
+              const myTotal =
+                cData?.months?.reduce((acc, m) => {
+                  const matching = m.byCharity?.find((bc) => String(bc.charityId) === charityId);
+                  return acc + (matching ? matching.total : 0);
+                }, 0) || 0;
+
+              setProfile((curr) => ({ ...(curr || me), myCharityTotal: myTotal }));
+            })
+            .catch(() => {});
+        }
       } catch (err) {
         console.error("Dashboard core fetch failed", err);
       } finally {
         setLoading(false);
       }
-
-      // 3. Secondary Stats (Draws, Payouts)
-      api.get("/draw/next").then(({ data }) => setNextDraw(data)).catch(() => {});
-      api.get("/stats/hero").then(({ data }) => setPayoutData(data)).catch(() => {});
     };
 
     loadData();
-  }, []);
+  }, [user]);
 
 
   // Safety: prevent perpetual loading if API stalls
@@ -63,8 +94,19 @@ const Dashboard = () => {
   const streak = scores.length >= 5 ? "Eligible" : `${5 - scores.length} to go`;
   const scoresNeeded = Math.max(0, 5 - scores.length);
   const lastScores = (scores || []).slice(0, 5);
-  const selectedCharity = profile?.selectedCharity || null;
+  const selectedCharityRaw = profile?.selectedCharity || null;
+  // Be defensive: if backend ever returns just an id string, avoid crashing.
+  const selectedCharity =
+    selectedCharityRaw && typeof selectedCharityRaw === "object" ? selectedCharityRaw : null;
   const isGuest = !user;
+
+  // Selected charity stats (backend-driven fields: goalAmount + totalDonations)
+  const charityRaised = selectedCharity ? Number(selectedCharity.totalDonations || 0) : 0;
+  const charityGoal = selectedCharity ? Number(selectedCharity.goalAmount || 0) : 0;
+  const charityProgressPct =
+    charityGoal > 0 ? Math.min(100, Math.round((charityRaised / charityGoal) * 100)) : 0;
+  const myCharityTotal = Number(profile?.myCharityTotal || 0);
+  const charitySharePct = Number(profile?.charityPercentage || 10);
 
   const parent = {
     hidden: { opacity: 0 },
@@ -171,7 +213,7 @@ const Dashboard = () => {
 
         </motion.div>
 
-        <motion.div className="card card--section glass-card dashboard-block slim-card" variants={child}>
+        <motion.div className="card card--section glass-card dashboard-block slim-card score-card" variants={child}>
           <div className="title">
             <h3 className="headline-earnings">
               Last <span className="headline-accent">5</span> scores
@@ -199,7 +241,7 @@ const Dashboard = () => {
                       <span className="functional-number">{s.score}</span>
                     </div>
                     <div className="score-row-meta">
-                      <span className="date-value">{s.date ? new Date(s.date).toLocaleDateString() : "—"}</span>
+                      <span className="date-value">{s.date ? new Date(s.date).toLocaleDateString() : "-"}</span>
                     </div>
                   </li>
                 ))}
@@ -229,22 +271,52 @@ const Dashboard = () => {
                 </div>
                 <div className="charity-name-stack">
                   <h4 className="charity-name gold-leaf-text">{selectedCharity.name}</h4>
-                  <p className="charity-tagline">{selectedCharity.category || "Community Cause"}</p>
+                  <p className="charity-tagline">
+                    Donation share: <span className="functional-number">{Math.max(10, charitySharePct)}%</span>
+                  </p>
                 </div>
               </div>
               <p className="charity-desc-limited">{selectedCharity.description}</p>
               <div className="charity-progress-zone">
                 <div className="progress-label-row">
-                  <span className="label">Funding Progress</span>
-                  <span className="value">{selectedCharity.progress || 65}%</span>
+                  <span className="label">
+                    Raised:{" "}
+                    <span className="functional-number">
+                      ${charityRaised.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                    </span>
+                  </span>
+                  <span className="value">
+                    {charityGoal > 0 ? (
+                      <>
+                        Goal:{" "}
+                        <span className="functional-number">
+                          ${charityGoal.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                        </span>{" "}
+                        <span className="label" style={{ opacity: 0.9 }}>
+                          ({charityProgressPct}%)
+                        </span>
+                      </>
+                    ) : (
+                      <span className="label" style={{ opacity: 0.9 }}>
+                        Goal: Not set
+                      </span>
+                    )}
+                  </span>
                 </div>
                 <div className="premium-progress-track">
                   <motion.div 
                     className="premium-progress-fill" 
                     initial={{ width: 0 }}
-                    animate={{ width: `${selectedCharity.progress || 65}%` }}
+                    animate={{ width: `${charityProgressPct}%` }}
                     transition={{ duration: 1.2, ease: "easeOut" }}
                   />
+                </div>
+
+                <div className="charity-my-row">
+                  <span className="label">Your contribution</span>
+                  <span className="gold-leaf-text functional-number">
+                    ${myCharityTotal.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                  </span>
                 </div>
               </div>
               <Link className="btn glass-btn full-width" to="/charities" style={{ marginTop: 12 }}>

@@ -158,16 +158,17 @@ const Hero = () => {
             }}
           >
             <span>Golf</span>
-            <span>·</span>
+            <span className="pill-dot" aria-hidden="true" />
             <span>Charity</span>
-            <span>·</span>
+            <span className="pill-dot" aria-hidden="true" />
             <span>Rewards</span>
           </p>
           <h1 className="hero-serif">
             Play. <span className="gold-leaf-text">WIN.</span> Give Back.
           </h1>
           <p className="hero-sub">
-            Hi <span className="gold-leaf-text">{firstName}</span>, your swings unlock real impact—drop your latest scores, keep eligibility glowing, and let’s turn the next draw into a win for you and your charity.
+            Hi <span className="gold-leaf-text">{firstName}</span>, your swings unlock real impact - drop your latest
+            scores, keep eligibility glowing, and let's turn the next draw into a win for you and your charity.
           </p>
           <HeroCounters />
           <div className="hero-actions">
