@@ -246,7 +246,7 @@ const Charities = () => {
                       Select
                     </button>
                     <Link className="btn frost-sapphire" to="/pricing">
-                      Subscribe
+                      Donate
                     </Link>
                   </div>
                 </div>
