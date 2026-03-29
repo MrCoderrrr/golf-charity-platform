@@ -2,14 +2,36 @@ import { useEffect, useMemo, useState } from "react";
 import api from "../api/client";
 import { useAuth } from "../context/AuthContext";
 
+const tierFor = (winner) => {
+  if (!winner) return "impact";
+  if (winner.matchCount >= 5) return "grand";
+  if (winner.matchCount === 4) return "prestige";
+  return "impact";
+};
+
+const tierLabelFor = (winner) => {
+  const tier = tierFor(winner);
+  if (tier === "grand") return "Grand Legacy";
+  if (tier === "prestige") return "Prestige Match";
+  return "Impact Match";
+};
+
+const reviewFilterKey = (winner) => {
+  const state = String(winner?.reviewStatus || "").toLowerCase();
+  if (state === "approved") return "approved";
+  if (state === "rejected") return "rejected";
+  return "pending";
+};
+
+const money = (value) => `$${Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
 const Winnings = () => {
   const { user } = useAuth();
 
   const [winnings, setWinnings] = useState([]);
   const [uploadingId, setUploadingId] = useState("");
-  const [filter, setFilter] = useState("all"); // all | grand | prestige | impact
-  const [statusFilter, setStatusFilter] = useState("all"); // all | pending | paid
-
+  const [filter, setFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -56,27 +78,13 @@ const Winnings = () => {
     }
   };
 
-  const tierFor = (w) => {
-    if (!w) return "impact";
-    if (w.matchCount >= 5) return "grand";
-    if (w.matchCount === 4) return "prestige";
-    return "impact";
-  };
-
   const filtered = useMemo(() => {
-    return winnings.filter((w) => {
-      const tierOk = filter === "all" ? true : tierFor(w) === filter;
-      const statusOk =
-        statusFilter === "all"
-          ? true
-          : statusFilter === "paid"
-          ? w.status === "paid"
-          : w.status === "pending";
+    return winnings.filter((winner) => {
+      const tierOk = filter === "all" ? true : tierFor(winner) === filter;
+      const statusOk = statusFilter === "all" ? true : reviewFilterKey(winner) === statusFilter;
       return tierOk && statusOk;
     });
-  }, [winnings, filter, statusFilter]);
-
-  const isPaid = (w) => w.status === "paid";
+  }, [filter, statusFilter, winnings]);
 
   if (!user) {
     return (
@@ -113,7 +121,7 @@ const Winnings = () => {
           <div className="winnings-total">Total wins: {winnings.length}</div>
         </div>
         <p className="winnings-sub">
-          Track your draw victories, upload proof, and verify every win.
+          Provisional winners must upload proof before payout is finalized.
         </p>
 
         <div className="winning-filters">
@@ -137,7 +145,7 @@ const Winnings = () => {
 
       <div className="winning-status-filters">
         <span className="label">Status</span>
-        {["all", "paid", "pending"].map((key) => (
+        {["all", "pending", "approved", "rejected"].map((key) => (
           <button
             key={key}
             type="button"
@@ -153,65 +161,86 @@ const Winnings = () => {
         <div className="card glass-card empty">No winnings yet.</div>
       ) : (
         <div className="winnings-grid">
-          {filtered.map((w) => (
-            <div key={w._id} className="card glass-card winning-card">
-              <div className="winning-top">
-                <div>
-                  <span className="label">Draw</span>
-                  <div className="functional-number">{`${w.drawId?.month}/${w.drawId?.year}`}</div>
+          {filtered.map((winner) => {
+            const reviewState = reviewFilterKey(winner);
+            const needsProof = !winner.proofUrl;
+            const shownAmount =
+              reviewState === "approved"
+                ? Number(winner.finalPrizeAmount || winner.prizeAmount || 0)
+                : Number(winner.provisionalPrizeAmount || 0);
+
+            return (
+              <div key={winner._id} className="card glass-card winning-card">
+                <div className="winning-top">
+                  <div>
+                    <span className="label">Draw</span>
+                    <div className="functional-number">{`${winner.drawId?.month}/${winner.drawId?.year}`}</div>
+                  </div>
+                  <span className="badge subtle">{tierLabelFor(winner)}</span>
                 </div>
-                <span className="badge subtle">
-                  {tierFor(w) === "grand"
-                    ? "Grand Legacy"
-                    : tierFor(w) === "prestige"
-                    ? "Prestige Match"
-                    : "Impact Match"}
-                </span>
-              </div>
-              <div className="winning-amount gold-leaf-text">
-                ${Number(w.prizeAmount || 0).toLocaleString("en-US")}
-              </div>
-              <div className="winning-meta">
-                <span>
-                  <span className="label">Status</span>{" "}
-                  <span className="functional-number">{w.status}</span>
-                </span>
-                <span>
-                  <span className="label">Proof</span>{" "}
-                  <span className="functional-number">{w.verified ? "Verified" : "Pending"}</span>
-                </span>
-              </div>
-              {w.proofImage && (
-                <a className="proof-link" href={w.proofImage} target="_blank" rel="noreferrer">
-                  View proof
-                </a>
-              )}
-              {isPaid(w) ? (
-                <div
-                  className="gold-leaf-text"
-                  style={{
-                    marginTop: 14,
-                    textAlign: "center",
-                    fontSize: 18,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  PAID
+
+                <div className="winning-amount gold-leaf-text">{money(shownAmount)}</div>
+
+                <div className="winning-meta">
+                  <span>
+                    <span className="label">State</span>{" "}
+                    <span className="functional-number">{winner.displayStatus}</span>
+                  </span>
+                  <span>
+                    <span className="label">Matches</span>{" "}
+                    <span className="functional-number">{winner.matchCount}/5</span>
+                  </span>
                 </div>
-              ) : (
-                <label className="btn secondary" style={{ marginTop: 12, alignSelf: "center" }}>
-                  {uploadingId === w._id ? "Uploading..." : "Upload proof"}
-                  <input
-                    type="file"
-                    style={{ display: "none" }}
-                    onChange={(e) => handleUpload(w._id, e.target.files?.[0])}
-                    disabled={Boolean(uploadingId)}
-                  />
-                </label>
-              )}
-            </div>
-          ))}
+
+                <div className="winning-meta">
+                  <span>
+                    <span className="label">Prize</span>{" "}
+                    <span className="functional-number">
+                      {reviewState === "approved" ? "Finalized" : "Provisional"}
+                    </span>
+                  </span>
+                  <span>
+                    <span className="label">Proof</span>{" "}
+                    <span className="functional-number">
+                      {needsProof ? "Required" : reviewState === "approved" ? "Approved" : reviewState === "rejected" ? "Rejected" : "Submitted"}
+                    </span>
+                  </span>
+                </div>
+
+                {winner.proofUrl && (
+                  <a className="proof-link" href={winner.proofUrl} target="_blank" rel="noreferrer">
+                    View proof
+                  </a>
+                )}
+
+                {winner.canUploadProof ? (
+                  <label className="btn secondary" style={{ marginTop: 12, alignSelf: "center" }}>
+                    {uploadingId === winner._id ? "Uploading..." : needsProof ? "Upload proof" : "Replace proof"}
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      style={{ display: "none" }}
+                      onChange={(e) => handleUpload(winner._id, e.target.files?.[0])}
+                      disabled={Boolean(uploadingId)}
+                    />
+                  </label>
+                ) : (
+                  <div
+                    className="gold-leaf-text"
+                    style={{
+                      marginTop: 14,
+                      textAlign: "center",
+                      fontSize: 18,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.08em",
+                    }}
+                  >
+                    {reviewState === "approved" ? "APPROVED" : "REJECTED"}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -219,4 +248,3 @@ const Winnings = () => {
 };
 
 export default Winnings;
-

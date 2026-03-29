@@ -22,25 +22,27 @@ const AdminLayout = ({ children, showNav = true }) => {
       <div className="hero-glow" />
       <div className="glow-grid" />
       <main className="layout" style={{ paddingTop: 20 }}>
-        <header className="admin-topbar">
-          <div className="admin-topbar-left">
-            <div className="admin-badge">Admin Portal</div>
-            <div className="admin-topbar-title">{pageTitle}</div>
+        <header className="admin-topbar" style={{ display: "block", paddingBottom: "16px" }}>
+          <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "12px", flexWrap: "wrap" }}>
+            <div className="admin-topbar-actions" style={{ justifyContent: "flex-start", width: "auto", flex: "0 0 auto", gap: "10px" }}>
+              <NavLink className="btn glass-btn admin-top-link" to="/">
+                Back to site
+              </NavLink>
+              <button
+                className="btn secondary admin-top-link"
+                type="button"
+                onClick={() => {
+                  logout?.();
+                  window.location.href = "/login";
+                }}
+              >
+                Logout
+              </button>
+            </div>
+            <div className="admin-badge" style={{ margin: 0 }}>Admin Portal</div>
           </div>
-          <div className="admin-topbar-actions">
-            <NavLink className="btn glass-btn admin-top-link" to="/">
-              Back to site
-            </NavLink>
-            <button
-              className="btn secondary admin-top-link"
-              type="button"
-              onClick={() => {
-                logout?.();
-                window.location.href = "/login";
-              }}
-            >
-              Logout
-            </button>
+          <div className="admin-topbar-title gold-leaf-text" style={{ textTransform: "uppercase", fontSize: "32px", display: "inline-block" }}>
+            {pageTitle}
           </div>
         </header>
         {showNav && (

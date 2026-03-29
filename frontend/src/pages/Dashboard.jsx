@@ -6,6 +6,16 @@ import { useAuth } from "../context/AuthContext";
 import { CharityIcon } from "../components/CharityIcon";
 import React from "react";
 
+const getProgressMeta = (current, goal) => {
+  const raised = Number(current) || 0;
+  const target = Number(goal) || 0;
+  if (raised <= 0 || target <= 0) return { width: 0, label: "0%" };
+  const raw = (raised / target) * 100;
+  return {
+    width: Math.max(2, Math.min(100, raw)),
+    label: raw < 1 ? "<1%" : `${Math.max(0, Math.min(100, Math.round(raw)))}%`,
+  };
+};
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -87,8 +97,6 @@ const Dashboard = () => {
     return () => clearTimeout(timer);
   }, []);
 
-  if (loading) return <div className="card card--section glass-card">Loading...</div>;
-
   const eligibilityVisible = scores && scores.length > 0;
   const progress = Math.min(100, Math.round((scores.length / 5) * 100));
   const streak = scores.length >= 5 ? "Eligible" : `${5 - scores.length} to go`;
@@ -98,15 +106,40 @@ const Dashboard = () => {
   // Be defensive: if backend ever returns just an id string, avoid crashing.
   const selectedCharity =
     selectedCharityRaw && typeof selectedCharityRaw === "object" ? selectedCharityRaw : null;
+  const selectedCharityId =
+    selectedCharity?._id || (typeof selectedCharityRaw === "string" ? selectedCharityRaw : "");
   const isGuest = !user;
 
   // Selected charity stats (backend-driven fields: goalAmount + totalDonations)
   const charityRaised = selectedCharity ? Number(selectedCharity.totalDonations || 0) : 0;
   const charityGoal = selectedCharity ? Number(selectedCharity.goalAmount || 0) : 0;
-  const charityProgressPct =
-    charityGoal > 0 ? Math.min(100, Math.round((charityRaised / charityGoal) * 100)) : 0;
+  const charityProgress = getProgressMeta(charityRaised, charityGoal);
   const myCharityTotal = Number(profile?.myCharityTotal || 0);
   const charitySharePct = Number(profile?.charityPercentage || 10);
+
+  useEffect(() => {
+    if (!user || !selectedCharityId) return;
+
+    let cancelled = false;
+
+    api
+      .get("/charities")
+      .then(({ data }) => {
+        if (cancelled) return;
+        const list = Array.isArray(data) ? data : [];
+        const matched = list.find((item) => String(item?._id) === String(selectedCharityId));
+        if (matched) {
+          setProfile((curr) => ({ ...(curr || {}), selectedCharity: matched }));
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, selectedCharityId]);
+
+  if (loading) return <div className="card card--section glass-card">Loading...</div>;
 
   const parent = {
     hidden: { opacity: 0 },
@@ -293,7 +326,7 @@ const Dashboard = () => {
                           ${charityGoal.toLocaleString("en-US", { maximumFractionDigits: 0 })}
                         </span>{" "}
                         <span className="label" style={{ opacity: 0.9 }}>
-                          ({charityProgressPct}%)
+                          ({charityProgress.label})
                         </span>
                       </>
                     ) : (
@@ -307,7 +340,7 @@ const Dashboard = () => {
                   <motion.div 
                     className="premium-progress-fill" 
                     initial={{ width: 0 }}
-                    animate={{ width: `${charityProgressPct}%` }}
+                    animate={{ width: `${charityProgress.width}%` }}
                     transition={{ duration: 1.2, ease: "easeOut" }}
                   />
                 </div>

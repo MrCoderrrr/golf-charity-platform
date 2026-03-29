@@ -54,11 +54,16 @@ const AdminPortal = () => {
   useEffect(() => {
     const docs = (winners || []).map((w) => ({
       _id: w._id,
-      userId: w.userId,
+      userId: w.userId?._id || w.userId,
+      userName: w.userId?.name || "Unknown",
+      userEmail: w.userId?.email || "",
       draw: `${w.drawId?.month}/${w.drawId?.year}`,
-      status: w.verified || w.status === "paid" ? "verified" : "pending",
-      proof: w.proofImage,
-      uploadedAt: w.createdAt || new Date().toISOString(),
+      tier: w.matchCount >= 5 ? "Jackpot" : w.matchCount === 4 ? "4-pass" : "3-pass",
+      status: String(w.reviewStatus || "pending").toLowerCase(),
+      proof: w.proofUrl || w.proofImage || "",
+      uploadedAt: w.proofUploadedAt || w.createdAt || new Date().toISOString(),
+      provisionalPrizeAmount: Number(w.provisionalPrizeAmount || 0),
+      finalPrizeAmount: Number(w.finalPrizeAmount || w.prizeAmount || 0),
     }));
     setDocuments(docs);
   }, [winners]);

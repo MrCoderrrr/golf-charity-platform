@@ -32,6 +32,19 @@ const drawSchema = new mongoose.Schema(
       enum: ["upcoming", "pending", "completed", "cancelled"],
       default: "upcoming",
     },
+    totalPrizePoolAmount: {
+      type: Number,
+      default: 0,
+    },
+    isSimulation: {
+      type: Boolean,
+      default: false,
+    },
+    winners: {
+      fiveMatch: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      fourMatch: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+      threeMatch: [{ type: mongoose.Schema.Types.ObjectId, ref: "User" }],
+    },
   },
   { timestamps: true }
 );

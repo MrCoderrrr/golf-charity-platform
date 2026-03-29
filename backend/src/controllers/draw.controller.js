@@ -11,6 +11,7 @@ const Transaction = require("../models/transaction.model");
 const Charity = require("../models/charity.model");
 const User = require("../models/user.model");
 const AuditLog = require("../models/auditLog.model");
+const { serializeWinner } = require("../utils/winnerLifecycle");
 
 const DAYS_30_MS = 30 * 24 * 60 * 60 * 1000;
 const PRIZE_POOL_SHARE = (() => {
@@ -374,38 +375,15 @@ exports.runDraw = async (req, res) => {
       });
       const scoreByUserId = new Map(eligibleAgg.map((r) => [String(r._id), r]));
 
-      const unassignedCharity = await getOrCreateUnassignedCharity(session);
-      const mk = monthKeyUTC(drawDate);
-
       // Prize pool is funded by ALL active subscriptions, even if a user is not eligible to win.
       const prizePoolBaseTotal = toMoney(
         activeSubs.reduce((sum, s) => sum + toMoney(s.prizePoolPortion || 0), 0)
       );
       const collectedTotal = toMoney(moneyTotals?.collected || activeSubs.reduce((sum, s) => sum + toMoney(s.amount || 0), 0));
-      const donationTotal = toMoney(moneyTotals?.donation || activeSubs.reduce((sum, s) => sum + toMoney(s.donationAmount || 0), 0));
-      const platformRevenueTotal = toMoney(moneyTotals?.revenue || activeSubs.reduce((sum, s) => sum + toMoney(s.platformRevenue || 0), 0));
+      const donationTotal = 0;
+      const platformRevenueTotal = Math.max(0, collectedTotal);
 
       const entryDocs = [];
-      const donationDocs = [];
-      const donationTxDocs = [];
-
-      // Create donation records for ALL active subscriptions for this month key.
-      for (const sub of activeSubs) {
-        const pct = clampDonationPct(sub.donationPercentage);
-        const donationAmount = toMoney(sub.donationAmount || 0);
-        const charityIdForDonation = sub.selectedCharityId || unassignedCharity._id;
-
-        donationDocs.push({
-          userId: sub.userId,
-          charityId: charityIdForDonation,
-          subscriptionId: sub._id,
-          drawId: draw._id,
-          monthKey: mk,
-          amount: donationAmount,
-          percentage: pct,
-          status: "pending",
-        });
-      }
 
       // Create draw entries only for eligible users (>= 5 scores in last 30 days).
       for (const sub of eligibleSubs) {
@@ -445,40 +423,6 @@ exports.runDraw = async (req, res) => {
           )
         : [];
 
-      const createdDonations = donationDocs.length ? await Donation.insertMany(donationDocs, { session }) : [];
-
-      for (const d of createdDonations) {
-        donationTxDocs.push({
-          userId: d.userId,
-          type: "donation",
-          amount: d.amount,
-          currency: "USD",
-          status: "pending",
-          provider: "manual",
-          ref: { donationId: d._id, drawId: draw._id, subscriptionId: d.subscriptionId },
-        });
-      }
-
-      if (donationTxDocs.length) {
-        await Transaction.insertMany(donationTxDocs, { session });
-      }
-
-      // Update charity donation totals (best-effort cache).
-      if (createdDonations.length) {
-        const byCharity = new Map();
-        for (const d of createdDonations) {
-          const key = String(d.charityId);
-          byCharity.set(key, (byCharity.get(key) || 0) + toMoney(d.amount));
-        }
-        const bulk = Array.from(byCharity.entries()).map(([charityId, inc]) => ({
-          updateOne: {
-            filter: { _id: charityId },
-            update: { $inc: { totalDonations: inc } },
-          },
-        }));
-        await Charity.bulkWrite(bulk, { session });
-      }
-
       const winnersByTier = { 5: [], 4: [], 3: [] };
       for (const e of createdEntries) {
         const matchCount = countMatches(e.scoresSnapshot, drawNumbers);
@@ -494,38 +438,25 @@ exports.runDraw = async (req, res) => {
 
       const winnerDocs = [];
       const payoutTxDocs = [];
-      const userBulk = [];
 
       const pushWinners = (entries, payouts, matchCount) => {
         for (let i = 0; i < entries.length; i++) {
           const entry = entries[i];
-          const prizeAmount = toMoney(payouts[i] || 0);
-          if (prizeAmount <= 0) continue;
+          const provisionalPrizeAmount = toMoney(payouts[i] || 0);
+          if (provisionalPrizeAmount <= 0) continue;
 
           winnerDocs.push({
             userId: entry.userId,
             drawId: draw._id,
             matchCount,
             tier: tierForMatchCount(matchCount),
-            prizeAmount,
+            scoresSnapshot: entry.scoresSnapshot || [],
+            provisionalPrizeAmount,
+            finalPrizeAmount: 0,
+            prizeAmount: 0,
+            paymentState: "pending",
+            reviewStatus: "pending",
             status: "pending",
-            verified: false,
-          });
-
-          userBulk.push({
-            updateOne: {
-              filter: { _id: entry.userId },
-              update: {
-                $inc: {
-                  totalEarnings: prizeAmount,
-                  ...(matchCount === 5
-                    ? { "wins.jackpot": 1 }
-                    : matchCount === 4
-                    ? { "wins.fourPass": 1 }
-                    : { "wins.threePass": 1 }),
-                },
-              },
-            },
           });
         }
       };
@@ -542,7 +473,7 @@ exports.runDraw = async (req, res) => {
         payoutTxDocs.push({
           userId: w.userId,
           type: "payout",
-          amount: w.prizeAmount,
+          amount: w.provisionalPrizeAmount,
           currency: "USD",
           status: "pending",
           provider: "manual",
@@ -552,10 +483,6 @@ exports.runDraw = async (req, res) => {
 
       if (payoutTxDocs.length) {
         await Transaction.insertMany(payoutTxDocs, { session });
-      }
-
-      if (userBulk.length) {
-        await User.bulkWrite(userBulk, { session });
       }
 
       const poolDoc = await PrizePool.create(
@@ -704,7 +631,9 @@ exports.getDraws = async (req, res) => {
     const drawIds = draws.map((d) => d._id);
     const [entries, wins] = await Promise.all([
       DrawEntry.find({ userId: user._id, drawId: { $in: drawIds } }).select("drawId"),
-      Winner.find({ userId: user._id, drawId: { $in: drawIds } }).select("drawId matchCount tier prizeAmount status"),
+      Winner.find({ userId: user._id, drawId: { $in: drawIds } }).select(
+        "drawId matchCount tier prizeAmount provisionalPrizeAmount finalPrizeAmount status paymentState reviewStatus proofUrl proofImage"
+      ),
     ]);
 
     const participated = new Set(entries.map((e) => String(e.drawId)));
@@ -716,7 +645,8 @@ exports.getDraws = async (req, res) => {
         const id = String(d._id);
         obj.drawAt = obj.drawDate;
         obj.participated = participated.has(id);
-        const w = winByDrawId.get(id);
+        const rawWinner = winByDrawId.get(id);
+        const w = rawWinner ? serializeWinner(rawWinner) : null;
         obj.won = Boolean(w);
         if (w) obj.myWin = w;
         if (obj.status !== "completed") delete obj.drawNumbers;
@@ -895,6 +825,21 @@ exports.deleteDrawById = async (req, res) => {
     });
 
     res.json({ message: "Draw deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+const drawService = require("../services/draw.service");
+
+exports.executeDrawAdmin = async (req, res) => {
+  try {
+    const drawId = req.params.id;
+    const isSimulation = req.body.isSimulation === true;
+    
+    const result = await drawService.executeDraw(drawId, isSimulation);
+    
+    res.json(result);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

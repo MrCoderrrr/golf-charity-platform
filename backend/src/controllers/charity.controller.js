@@ -1,4 +1,25 @@
 const Charity = require("../models/charity.model");
+const Donation = require("../models/donation.model");
+
+const attachWinnerDonationTotals = async (charities) => {
+  const rows = Array.isArray(charities) ? charities : [charities].filter(Boolean);
+  if (!rows.length) return Array.isArray(charities) ? [] : null;
+
+  const ids = rows.map((item) => item._id);
+  const totals = await Donation.aggregate([
+    { $match: { charityId: { $in: ids }, winnerId: { $exists: true, $ne: null } } },
+    { $group: { _id: "$charityId", total: { $sum: "$amount" } } },
+  ]);
+
+  const totalMap = new Map(totals.map((row) => [String(row._id), Number(row.total || 0)]));
+  const mapped = rows.map((charity) => {
+    const out = charity.toObject ? charity.toObject() : { ...charity };
+    out.totalDonations = totalMap.get(String(out._id)) || 0;
+    return out;
+  });
+
+  return Array.isArray(charities) ? mapped : mapped[0];
+};
 
 exports.createCharity = async (req, res) => {
   try {
@@ -21,7 +42,7 @@ exports.createCharity = async (req, res) => {
 exports.getCharities = async (req, res) => {
   try {
     const charities = await Charity.find();
-    res.json(charities);
+    res.json(await attachWinnerDonationTotals(charities));
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

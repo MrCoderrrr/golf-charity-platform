@@ -118,7 +118,7 @@ const AdminUsers = () => {
             <tbody>
               {filteredUsers.map((u) => (
                 <tr key={u._id}>
-                  <td>
+                  <td data-label="User">
                     <div className="admin-user">
                       <div className="admin-avatar">
                         {(u.name || "?").slice(0, 1).toUpperCase()}
@@ -131,20 +131,20 @@ const AdminUsers = () => {
                       </div>
                     </div>
                   </td>
-                  <td>
+                  <td data-label="Role">
                     <span className="badge subtle">{u.role}</span>
                   </td>
-                  <td>
+                  <td data-label="Status">
                     <span
                       className={`badge ${u.banned ? "error-badge" : "badge-soft"}`}
                     >
                       {u.banned ? "Banned" : "Active"}
                     </span>
                   </td>
-                  <td>
+                  <td data-label="Subscription">
                     <span className="badge">{u.isSubscribed ? "Subscribed" : "Free"}</span>
                   </td>
-                  <td style={{ textAlign: "right" }}>
+                  <td data-label="Actions" className="admin-table-actions" style={{ textAlign: "right" }}>
                     <div className="admin-actions">
                       <button
                         className="btn secondary"
@@ -171,4 +171,3 @@ const AdminUsers = () => {
 };
 
 export default AdminUsers;
-

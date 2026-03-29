@@ -75,7 +75,7 @@ const AdminDashboard = () => {
     paidOut: 0,
   };
 
-  const net = (Number(kpis.income) || 0) - (Number(kpis.donated) || 0);
+  const net = (Number(kpis.income) || 0) - (Number(kpis.paidOut) || 0);
 
   const ops = overview?.ops || {
     activeSubscriptions: 0,
@@ -233,7 +233,7 @@ const AdminDashboard = () => {
           </span>
         </div>
         <div className="mini-card">
-          <span className="label">Net (income - donated)</span>
+          <span className="label">Company earnings</span>
           <span className="functional-number">
             {loading ? "—" : money.format(net || 0)}
           </span>

@@ -5,12 +5,6 @@ const Draw = require("../models/draw.model");
 const Subscription = require("../models/subscription.model");
 const PrizePool = require("../models/prizePool.model");
 
-const clampDonationPct = (pct) => {
-  const n = Number(pct);
-  if (!Number.isFinite(n)) return 10;
-  return Math.min(100, Math.max(10, n));
-};
-
 const toMoney = (n) => Math.max(0, Math.round(Number(n) || 0));
 
 const PRIZE_POOL_SHARE = (() => {
@@ -22,7 +16,10 @@ const PRIZE_POOL_SHARE = (() => {
 exports.getHeroStats = async (req, res) => {
   try {
     const [donAgg, players, charities, lastPool] = await Promise.all([
-      Donation.aggregate([{ $group: { _id: null, total: { $sum: "$amount" } } }]),
+      Donation.aggregate([
+        { $match: { winnerId: { $exists: true, $ne: null } } },
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]),
       User.countDocuments({ role: "user" }),
       Charity.countDocuments({}),
       PrizePool.findOne().sort({ createdAt: -1 }),
@@ -53,61 +50,8 @@ exports.getHeroStats = async (req, res) => {
         { $group: { _id: "$userId", doc: { $first: "$$ROOT" } } },
         { $replaceRoot: { newRoot: "$doc" } },
         {
-          $lookup: {
-            from: "users",
-            localField: "userId",
-            foreignField: "_id",
-            as: "user",
-          },
-        },
-        { $unwind: { path: "$user", preserveNullAndEmptyArrays: true } },
-        { $match: { $or: [{ "user.banned": { $ne: true } }, { user: null }] } },
-        {
           $addFields: {
-            effectiveDonationPct: {
-              $min: [
-                100,
-                {
-                  $max: [
-                    10,
-                    {
-                      $ifNull: [
-                        "$user.charityPercentage",
-                        { $ifNull: ["$donationPercentage", 10] },
-                      ],
-                    },
-                  ],
-                },
-              ],
-            },
-          },
-        },
-        {
-          $addFields: {
-            donationAmount: {
-              $round: [{ $multiply: ["$amount", { $divide: ["$effectiveDonationPct", 100] }] }, 0],
-            },
-          },
-        },
-        {
-          $addFields: {
-            remainingAmount: { $subtract: ["$amount", "$donationAmount"] },
-          },
-        },
-        {
-          $addFields: {
-            prizePoolPortion: { $round: [{ $multiply: ["$remainingAmount", PRIZE_POOL_SHARE] }, 0] },
-            platformRevenue: {
-              $round: [
-                {
-                  $subtract: [
-                    "$remainingAmount",
-                    { $multiply: ["$remainingAmount", PRIZE_POOL_SHARE] },
-                  ],
-                },
-                0,
-              ],
-            },
+            prizePoolPortion: { $round: [{ $multiply: ["$amount", PRIZE_POOL_SHARE] }, 0] },
           },
         },
         {
@@ -115,9 +59,7 @@ exports.getHeroStats = async (req, res) => {
             _id: null,
             subs: { $sum: 1 },
             collected: { $sum: "$amount" },
-            donation: { $sum: "$donationAmount" },
             prize: { $sum: "$prizePoolPortion" },
-            revenue: { $sum: "$platformRevenue" },
           },
         },
       ]);
@@ -138,9 +80,9 @@ exports.getHeroStats = async (req, res) => {
         totals: {
           subs: Number(t?.subs || 0),
           collected: toMoney(t?.collected || 0),
-          donation: toMoney(t?.donation || 0),
+          donation: 0,
           prizeBase,
-          revenue: toMoney(t?.revenue || 0),
+          revenue: Math.max(0, toMoney(t?.collected || 0) - prizeBase),
         },
         nextDraw: {
           id: nextDraw._id,

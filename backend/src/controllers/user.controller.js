@@ -1,6 +1,72 @@
 const User = require("../models/user.model");
 const Donation = require("../models/donation.model");
 const Charity = require("../models/charity.model");
+const Winner = require("../models/winner.model");
+
+const attachEarningsBreakdown = async (userDoc) => {
+  if (!userDoc) return null;
+
+  const out = userDoc.toObject ? userDoc.toObject() : { ...userDoc };
+  if (out.selectedCharity && typeof out.selectedCharity === "object" && out.selectedCharity._id) {
+    const charityTotals = await Donation.aggregate([
+      {
+        $match: {
+          charityId: out.selectedCharity._id,
+          winnerId: { $exists: true, $ne: null },
+        },
+      },
+      { $group: { _id: "$charityId", total: { $sum: "$amount" } } },
+    ]);
+    out.selectedCharity.totalDonations = Number(charityTotals?.[0]?.total || 0);
+  }
+
+  const earningsRows = await Winner.aggregate([
+    { $match: { userId: userDoc._id, reviewStatus: { $in: ["approved", "Approve"] } } },
+    {
+      $group: {
+        _id: "$matchCount",
+        total: { $sum: "$prizeAmount" },
+        count: { $sum: 1 },
+      },
+    },
+  ]);
+
+  const breakdown = {
+    jackpot: 0,
+    fourPass: 0,
+    threePass: 0,
+    total: 0,
+  };
+  const wins = {
+    jackpot: 0,
+    fourPass: 0,
+    threePass: 0,
+  };
+
+  for (const row of earningsRows) {
+    if (row?._id === 5) {
+      breakdown.jackpot = Number(row.total || 0);
+      wins.jackpot = Number(row.count || 0);
+    }
+    if (row?._id === 4) {
+      breakdown.fourPass = Number(row.total || 0);
+      wins.fourPass = Number(row.count || 0);
+    }
+    if (row?._id === 3) {
+      breakdown.threePass = Number(row.total || 0);
+      wins.threePass = Number(row.count || 0);
+    }
+  }
+
+  const aggregateTotal = breakdown.jackpot + breakdown.fourPass + breakdown.threePass;
+  breakdown.total = aggregateTotal;
+
+  out.earningsBreakdown = breakdown;
+  out.totalEarnings = aggregateTotal;
+  out.wins = wins;
+  out.isAdmin = out.role === "admin";
+  return out;
+};
 
 exports.getMe = async (req, res) => {
   try {
@@ -9,8 +75,7 @@ exports.getMe = async (req, res) => {
       .populate("selectedCharity")
       .populate("subscriptionId");
 
-    const out = user ? user.toObject() : null;
-    if (out) out.isAdmin = out.role === "admin";
+    const out = await attachEarningsBreakdown(user);
     res.json(out);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -56,7 +121,8 @@ exports.updateCharityPercentage = async (req, res) => {
       .populate("selectedCharity")
       .populate("subscriptionId");
 
-    res.json(user);
+    const out = await attachEarningsBreakdown(user);
+    res.json(out);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -65,7 +131,7 @@ exports.updateCharityPercentage = async (req, res) => {
 exports.getMyContributions = async (req, res) => {
   try {
     const monthKey = req.query.monthKey ? String(req.query.monthKey) : null;
-    const match = { userId: req.user._id };
+    const match = { userId: req.user._id, winnerId: { $exists: true, $ne: null } };
     if (monthKey) match.monthKey = monthKey;
 
     const rows = await Donation.aggregate([

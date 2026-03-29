@@ -72,6 +72,10 @@ const Pricing = () => {
 
       <div className="pricing-grid">
         {tiers.map((tier) => {
+          const tierKey = String(tier.name || "").toLowerCase();
+          const planType = billing[tier.name] === "yearly" ? "yearly" : "monthly";
+          const buttonKey = `${tierKey}:${planType}`;
+          const isRedirecting = loadingKey === buttonKey;
           const isBasic = tier.name === "Basic";
           const isPro = tier.name === "Pro";
           const priceClass = isBasic
@@ -86,6 +90,11 @@ const Pricing = () => {
             : "plan-name plan-name-elite";
           const glowClass =
             tier.name === "Elite" && billing[tier.name] === "yearly" ? "plan-glow" : "";
+          const ctaClass = isBasic
+            ? "plan-cta plan-cta--basic"
+            : isPro
+            ? "plan-cta plan-cta--pro"
+            : "plan-cta plan-cta--elite";
 
           return (
             <div
@@ -132,16 +141,14 @@ const Pricing = () => {
                 ))}
               </ul>
               <button
-                className="btn primary-trace plan-cta"
-                disabled={Boolean(loadingKey)}
+                className={`btn primary-trace ${ctaClass}`}
+                disabled={isRedirecting}
                 onClick={async () => {
                   setStatus("");
                   if (!user) {
                     navigate("/login");
                     return;
                   }
-                  const tierKey = String(tier.name || "").toLowerCase();
-                  const planType = billing[tier.name] === "yearly" ? "yearly" : "monthly";
                   const url = STRIPE_PAYMENT_LINKS?.[tierKey]?.[planType] || "";
                   if (!url) {
                     setStatus("Missing payment link for this plan.");
@@ -159,7 +166,7 @@ const Pricing = () => {
                   }
                 }}
               >
-                {loadingKey ? "Redirecting..." : "Select"}
+                {isRedirecting ? "Redirecting..." : "Select"}
               </button>
             </div>
           );

@@ -11,10 +11,15 @@ const subscriptionRoutes = require("./routes/subscription.routes");
 const winnerRoutes = require("./routes/winner.routes");
 const adminRoutes = require("./routes/admin.routes");
 const statsRoutes = require("./routes/stats.routes");
+const stripeWebhookRoutes = require("./routes/stripe.webhook.routes");
 
 const app = express();
 
 app.use(cors());
+
+// Stripe Webhook needs the raw body format, so we use it before express.json()
+app.use("/api/webhooks/stripe", stripeWebhookRoutes);
+
 app.use(express.json());
 
 // If MongoDB is down, fail fast with a clean 503 instead of hanging buffered ops

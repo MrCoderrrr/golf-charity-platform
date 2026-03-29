@@ -17,8 +17,10 @@ const iconKeyFor = (c) => String(c?.icon || "").trim() || "star";
 const pctProgress = (current, goal) => {
   const c = Number(current) || 0;
   const g = Number(goal) || 0;
-  if (g <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((c / g) * 100)));
+  if (g <= 0 || c <= 0) return 0;
+  const raw = (c / g) * 100;
+  if (raw <= 0) return 0;
+  return Math.max(2, Math.min(100, raw));
 };
 
 const Charities = () => {
@@ -26,8 +28,8 @@ const Charities = () => {
 
   const [charities, setCharities] = useState([]);
   const [selectedId, setSelectedId] = useState("");
-  const [profile, setProfile] = useState(null);
-  const [subscription, setSubscription] = useState(null);
+  const [, setProfile] = useState(null);
+  const [contributions, setContributions] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -40,15 +42,15 @@ const Charities = () => {
     try {
       const charityReq = api.get("/charities");
       const meReq = user ? api.get("/user/me") : Promise.resolve({ data: null });
-      const subReq = user ? api.get("/subscriptions") : Promise.resolve({ data: null });
+      const contributionReq = user ? api.get("/user/contributions") : Promise.resolve({ data: null });
 
-      const [{ data: charityData }, { data: me }, { data: sub }] =
-        await Promise.all([charityReq, meReq, subReq]);
+      const [{ data: charityData }, { data: me }, { data: contributionData }] =
+        await Promise.all([charityReq, meReq, contributionReq]);
 
       const list = Array.isArray(charityData) ? charityData : [];
       setCharities(list);
       setProfile(me);
-      setSubscription(sub);
+      setContributions(contributionData || null);
 
       const initialSelected =
         me?.selectedCharity?._id || list[0]?._id || "";
@@ -57,7 +59,7 @@ const Charities = () => {
       setError(err?.response?.data?.message || "Failed to load charities.");
       setCharities([]);
       setProfile(null);
-      setSubscription(null);
+      setContributions(null);
       setSelectedId("");
     } finally {
       setLoading(false);
@@ -76,19 +78,22 @@ const Charities = () => {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return charities;
     return charities.filter((c) => {
+      if (selectedId && String(c?._id) === String(selectedId)) return false;
       const name = String(c?.name || "").toLowerCase();
       const desc = String(c?.description || "").toLowerCase();
+      if (!q) return true;
       return name.includes(q) || desc.includes(q);
     });
-  }, [charities, search]);
+  }, [charities, search, selectedId]);
 
-  const donationPct = Math.max(10, Math.min(100, Number(profile?.charityPercentage) || 10));
-  const planAmount = Number(subscription?.amount) || 0;
-  const myContribution = Math.round((planAmount * donationPct) / 100);
-  const contributionLabel =
-    subscription?.planType === "yearly" ? "/yr" : subscription?.planType === "monthly" ? "/mo" : "";
+  const myContribution = useMemo(() => {
+    if (!selectedId || !contributions?.months?.length) return 0;
+    return contributions.months.reduce((acc, month) => {
+      const matching = month?.byCharity?.find((item) => String(item?.charityId) === String(selectedId));
+      return acc + Number(matching?.total || 0);
+    }, 0);
+  }, [contributions, selectedId]);
 
   const selectCharity = async (id) => {
     setSelectedId(id);
@@ -135,18 +140,18 @@ const Charities = () => {
 
             <div className="selected-charity-metrics inline">
               <div className="metric-pair">
-                <span className="hero-counter-label">Total donated</span>
+                <span className="hero-counter-label">Your contribution</span>
                 <span className="hero-counter-value">
                   <span className="functional-number">
-                    {formatINR(selected.totalDonations || 0)}
+                    {myContribution > 0 ? formatINR(myContribution) : "No donations yet"}
                   </span>
                 </span>
               </div>
-              <div className="metric-pair">
-                <span className="hero-counter-label">Your share</span>
+              <div className="metric-pair metric-pair-right">
+                <span className="hero-counter-label">Total donated</span>
                 <span className="hero-counter-value metric-highlight">
                   <span className="functional-number">
-                    {planAmount > 0 ? `${formatINR(myContribution)}${contributionLabel}` : "Subscribe to contribute"}
+                    {formatINR(selected.totalDonations || 0)}
                   </span>
                 </span>
               </div>

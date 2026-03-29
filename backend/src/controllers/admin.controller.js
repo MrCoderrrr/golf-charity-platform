@@ -1,6 +1,9 @@
 const Subscription = require("../models/subscription.model");
 const Winner = require("../models/winner.model");
 const User = require("../models/user.model");
+const Donation = require("../models/donation.model");
+const Transaction = require("../models/transaction.model");
+const { reviewWinnerInternal } = require("./winner.controller");
 
 const clampToNumber = (value) => {
   const n = Number(value);
@@ -69,9 +72,15 @@ exports.getAnalyticsOverview = async (req, res) => {
       subRangeTotalsAgg,
       subRangeMonthlyAgg,
       subPlanTypeAgg,
+      donationAllTimeAgg,
+      donationRangeTotalsAgg,
+      donationRangeMonthlyAgg,
       winAllTimeAgg,
+      payoutAllTimeAgg,
       winRangeTotalsAgg,
+      payoutRangeTotalsAgg,
       winRangeMonthlyAgg,
+      payoutRangeMonthlyAgg,
       winMatchCountAgg,
       activeSubscriptions,
       totalUsers,
@@ -150,43 +159,16 @@ exports.getAnalyticsOverview = async (req, res) => {
           },
         },
       ]),
-      Winner.aggregate([
-        {
-          $group: {
-            _id: null,
-            won: { $sum: "$prizeAmount" },
-            paidOut: {
-              $sum: {
-                $cond: [
-                  { $eq: ["$status", "paid"] },
-                  "$prizeAmount",
-                  0,
-                ],
-              },
-            },
-          },
-        },
+      Donation.aggregate([
+        { $match: { winnerId: { $exists: true, $ne: null } } },
+        { $group: { _id: null, donated: { $sum: "$amount" } } },
       ]),
-      Winner.aggregate([
-        { $match: { createdAt: { $gte: from, $lte: to } } },
-        {
-          $group: {
-            _id: null,
-            won: { $sum: "$prizeAmount" },
-            paidOut: {
-              $sum: {
-                $cond: [
-                  { $eq: ["$status", "paid"] },
-                  "$prizeAmount",
-                  0,
-                ],
-              },
-            },
-          },
-        },
+      Donation.aggregate([
+        { $match: { winnerId: { $exists: true, $ne: null }, createdAt: { $gte: from, $lte: to } } },
+        { $group: { _id: null, donated: { $sum: "$amount" } } },
       ]),
-      Winner.aggregate([
-        { $match: { createdAt: { $gte: from, $lte: to } } },
+      Donation.aggregate([
+        { $match: { winnerId: { $exists: true, $ne: null }, createdAt: { $gte: from, $lte: to } } },
         {
           $group: {
             _id: {
@@ -196,17 +178,70 @@ exports.getAnalyticsOverview = async (req, res) => {
                 timezone: "UTC",
               },
             },
-            won: { $sum: "$prizeAmount" },
-            paidOut: {
-              $sum: {
-                $cond: [
-                  { $eq: ["$status", "paid"] },
-                  "$prizeAmount",
-                  0,
-                ],
+            donated: { $sum: "$amount" },
+          },
+        },
+      ]),
+      Winner.aggregate([
+        { $match: { reviewStatus: { $in: ["approved", "Approve"] } } },
+        {
+          $group: {
+            _id: null,
+            won: { $sum: { $ifNull: ["$finalPrizeAmount", "$prizeAmount"] } },
+          },
+        },
+      ]),
+      Transaction.aggregate([
+        { $match: { type: "payout", status: { $ne: "failed" } } },
+        { $group: { _id: null, paidOut: { $sum: "$amount" } } },
+      ]),
+      Winner.aggregate([
+        { $match: { createdAt: { $gte: from, $lte: to }, reviewStatus: { $in: ["approved", "Approve"] } } },
+        {
+          $group: {
+            _id: null,
+            won: { $sum: { $ifNull: ["$finalPrizeAmount", "$prizeAmount"] } },
+          },
+        },
+      ]),
+      Transaction.aggregate([
+        { $match: { type: "payout", status: { $ne: "failed" }, createdAt: { $gte: from, $lte: to } } },
+        { $group: { _id: null, paidOut: { $sum: "$amount" } } },
+      ]),
+      Winner.aggregate([
+        { $match: { createdAt: { $gte: from, $lte: to }, reviewStatus: { $in: ["approved", "Approve"] } } },
+        {
+          $group: {
+            _id: {
+              $dateToString: {
+                format: "%Y-%m",
+                date: "$createdAt",
+                timezone: "UTC",
               },
             },
+            won: { $sum: { $ifNull: ["$finalPrizeAmount", "$prizeAmount"] } },
             winners: { $sum: 1 },
+          },
+        },
+      ]),
+      Transaction.aggregate([
+        {
+          $match: {
+            type: "payout",
+            status: { $ne: "failed" },
+            createdAt: { $gte: from, $lte: to },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              $dateToString: {
+                format: "%Y-%m",
+                date: "$createdAt",
+                timezone: "UTC",
+              },
+            },
+            paidOut: { $sum: "$amount" },
           },
         },
       ]),
@@ -218,32 +253,48 @@ exports.getAnalyticsOverview = async (req, res) => {
       User.countDocuments({}),
       User.countDocuments({ isSubscribed: true }),
       Winner.countDocuments({
-        proofImage: { $exists: true, $ne: null },
-        verified: false,
+        $or: [{ proofUrl: { $exists: true, $ne: null } }, { proofImage: { $exists: true, $ne: null } }],
+        reviewStatus: { $in: ["pending", "Pending"] },
       }),
     ]);
 
-    const subAllTime = subAllTimeAgg[0] || { income: 0, donated: 0 };
-    const subRangeTotals = subRangeTotalsAgg[0] || { income: 0, donated: 0 };
-    const winAllTime = winAllTimeAgg[0] || { won: 0, paidOut: 0 };
-    const winRangeTotals = winRangeTotalsAgg[0] || { won: 0, paidOut: 0 };
+    const subAllTime = subAllTimeAgg[0] || { income: 0 };
+    const subRangeTotals = subRangeTotalsAgg[0] || { income: 0 };
+    const donationAllTime = donationAllTimeAgg[0] || { donated: 0 };
+    const donationRangeTotals = donationRangeTotalsAgg[0] || { donated: 0 };
+    const winAllTime = {
+      won: Number(winAllTimeAgg[0]?.won || 0),
+      paidOut: Number(payoutAllTimeAgg[0]?.paidOut || 0),
+    };
+    const winRangeTotals = {
+      won: Number(winRangeTotalsAgg[0]?.won || 0),
+      paidOut: Number(payoutRangeTotalsAgg[0]?.paidOut || 0),
+    };
 
     const subMonthlyByKey = new Map(
       (subRangeMonthlyAgg || []).map((row) => [row._id, row])
     );
+    const donationMonthlyByKey = new Map(
+      (donationRangeMonthlyAgg || []).map((row) => [row._id, row])
+    );
     const winMonthlyByKey = new Map(
       (winRangeMonthlyAgg || []).map((row) => [row._id, row])
+    );
+    const payoutMonthlyByKey = new Map(
+      (payoutRangeMonthlyAgg || []).map((row) => [row._id, row])
     );
 
     const trendMonthly = monthKeys.map((key) => {
       const s = subMonthlyByKey.get(key) || {};
+      const d = donationMonthlyByKey.get(key) || {};
       const w = winMonthlyByKey.get(key) || {};
+      const p = payoutMonthlyByKey.get(key) || {};
       return {
         month: key,
         income: clampToNumber(s.income),
-        donated: clampToNumber(s.donated),
+        donated: clampToNumber(d.donated),
         won: clampToNumber(w.won),
-        paidOut: clampToNumber(w.paidOut),
+        paidOut: clampToNumber(p.paidOut),
         subscriptions: clampToNumber(s.subscriptions),
         winners: clampToNumber(w.winners),
       };
@@ -268,13 +319,13 @@ exports.getAnalyticsOverview = async (req, res) => {
       kpis: {
         allTime: {
           income: clampToNumber(subAllTime.income),
-          donated: clampToNumber(subAllTime.donated),
+          donated: clampToNumber(donationAllTime.donated),
           won: clampToNumber(winAllTime.won),
           paidOut: clampToNumber(winAllTime.paidOut),
         },
         range: {
           income: clampToNumber(subRangeTotals.income),
-          donated: clampToNumber(subRangeTotals.donated),
+          donated: clampToNumber(donationRangeTotals.donated),
           won: clampToNumber(winRangeTotals.won),
           paidOut: clampToNumber(winRangeTotals.paidOut),
         },
@@ -342,5 +393,21 @@ exports.setUserBanned = async (req, res) => {
     res.json(user);
   } catch (err) {
     res.status(500).json({ message: err.message });
+  }
+};
+
+exports.verifyWinnerProof = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const winner = await reviewWinnerInternal({
+      winnerId: id,
+      reviewStatus: req.body?.reviewStatus,
+      actorUserId: req.user._id,
+      ip: req.ip,
+      userAgent: req.get("user-agent"),
+    });
+    res.json(winner);
+  } catch (err) {
+    res.status(err.statusCode || 500).json({ message: err.message });
   }
 };

@@ -1,4 +1,4 @@
-﻿const mongoose = require("mongoose");
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 
 const userSchema = new mongoose.Schema(
@@ -25,6 +25,13 @@ const userSchema = new mongoose.Schema(
 
     charityPercentage: { type: Number, default: 10, min: 10, max: 100 },
 
+    scores: [
+      {
+        score: { type: Number, min: 1, max: 45 },
+        playedAt: { type: Date, default: Date.now },
+      },
+    ],
+
     // Cached subscription state (authoritative record is Subscription documents)
     isSubscribed: { type: Boolean, default: false },
     subscriptionId: { type: mongoose.Schema.Types.ObjectId, ref: "Subscription" },
@@ -39,6 +46,15 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Retain max 5 latest scores
+userSchema.pre("save", function (next) {
+  if (this.isModified("scores") && this.scores && this.scores.length > 5) {
+    this.scores.sort((a, b) => b.playedAt - a.playedAt);
+    this.scores = this.scores.slice(0, 5);
+  }
+  next();
+});
 
 // Hash password before saving
 userSchema.pre("save", async function (next) {

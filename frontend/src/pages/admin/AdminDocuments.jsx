@@ -27,7 +27,7 @@ const AdminDocuments = () => {
       </div>
 
       <div className="winning-status-filters" style={{ marginTop: 10 }}>
-        {["all", "pending", "verified"].map((key) => (
+        {["all", "pending", "approved", "rejected"].map((key) => (
           <button
             key={key}
             type="button"
@@ -50,12 +50,20 @@ const AdminDocuments = () => {
                 <div className="admin-doc-row">
                   <div>
                     <div className="admin-doc-title">Draw: {d.draw}</div>
-                    <div className="admin-doc-meta">User: {String(d.userId || "-")}</div>
+                    <div className="admin-doc-meta">User: {d.userName || String(d.userId || "-")}</div>
+                    {d.userEmail && <div className="admin-doc-meta">{d.userEmail}</div>}
+                    <div className="admin-doc-meta">Tier: {d.tier}</div>
                     <div className="admin-doc-meta">
                       Uploaded: {new Date(d.uploadedAt).toLocaleString()}
                     </div>
+                    <div className="admin-doc-meta">
+                      Provisional: ${Number(d.provisionalPrizeAmount || 0).toLocaleString("en-US")}
+                    </div>
+                    <div className="admin-doc-meta">
+                      Final: ${Number(d.finalPrizeAmount || 0).toLocaleString("en-US")}
+                    </div>
                   </div>
-                  <span className={`badge ${d.status === "pending" ? "" : "badge-soft"}`}>
+                  <span className={`badge ${d.status === "pending" ? "" : d.status === "rejected" ? "error-badge" : "badge-soft"}`}>
                     {d.status}
                   </span>
                 </div>
@@ -69,13 +77,14 @@ const AdminDocuments = () => {
                 <button
                   className="btn secondary"
                   onClick={() => verifyWinner?.(d._id, "paid")}
-                  disabled={d.status === "verified"}
+                  disabled={d.status === "approved"}
                 >
-                  Verify
+                  Approve
                 </button>
                 <button
                   className="btn secondary"
                   onClick={() => rejectWinner?.(d._id)}
+                  disabled={d.status === "rejected"}
                 >
                   Reject
                 </button>

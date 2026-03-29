@@ -12,10 +12,13 @@ const donationSchema = new mongoose.Schema(
       ref: "Charity",
       required: true,
     },
+    winnerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Winner",
+    },
     subscriptionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Subscription",
-      required: true,
     },
     drawId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -49,5 +52,6 @@ const donationSchema = new mongoose.Schema(
 donationSchema.index({ userId: 1, monthKey: -1 });
 donationSchema.index({ charityId: 1, monthKey: -1 });
 donationSchema.index({ drawId: 1, createdAt: -1 });
+donationSchema.index({ winnerId: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model("Donation", donationSchema);
