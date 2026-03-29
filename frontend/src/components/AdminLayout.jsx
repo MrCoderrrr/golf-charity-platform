@@ -23,8 +23,9 @@ const AdminLayout = ({ children, showNav = true }) => {
       <div className="glow-grid" />
       <main className="layout" style={{ paddingTop: 20 }}>
         <header className="admin-topbar" style={{ display: "block", paddingBottom: "16px" }}>
-          <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "12px", flexWrap: "wrap" }}>
-            <div className="admin-topbar-actions" style={{ justifyContent: "flex-start", width: "auto", flex: "0 0 auto", gap: "10px" }}>
+          <div style={{ display: "flex", gap: "16px", alignItems: "center", justifyContent: "space-between", marginBottom: "12px", flexWrap: "wrap" }}>
+            <div className="admin-badge" style={{ margin: 0 }}>Admin Portal</div>
+            <div className="admin-topbar-actions" style={{ justifyContent: "flex-end", width: "auto", flex: "0 0 auto", gap: "10px" }}>
               <NavLink className="btn glass-btn admin-top-link" to="/">
                 Back to site
               </NavLink>
@@ -39,7 +40,6 @@ const AdminLayout = ({ children, showNav = true }) => {
                 Logout
               </button>
             </div>
-            <div className="admin-badge" style={{ margin: 0 }}>Admin Portal</div>
           </div>
           <div className="admin-topbar-title gold-leaf-text" style={{ textTransform: "uppercase", fontSize: "32px", display: "inline-block" }}>
             {pageTitle}

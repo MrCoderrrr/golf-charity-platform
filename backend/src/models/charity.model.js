@@ -1,4 +1,4 @@
-﻿const mongoose = require("mongoose");
+const mongoose = require("mongoose");
 
 const charitySchema = new mongoose.Schema(
   {
@@ -22,6 +22,11 @@ const charitySchema = new mongoose.Schema(
     },
     image: {
       type: String,
+    },
+    stripeLink: {
+      type: String,
+      trim: true,
+      default: "",
     },
     totalDonations: {
       type: Number,

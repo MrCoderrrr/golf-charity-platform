@@ -23,7 +23,7 @@ const attachWinnerDonationTotals = async (charities) => {
 
 exports.createCharity = async (req, res) => {
   try {
-    const { name, description, image, icon, goalAmount } = req.body;
+    const { name, description, image, icon, goalAmount, stripeLink } = req.body;
 
     const charity = await Charity.create({
       name,
@@ -31,6 +31,7 @@ exports.createCharity = async (req, res) => {
       image,
       icon,
       goalAmount,
+      stripeLink,
     });
 
     res.status(201).json(charity);
@@ -51,7 +52,7 @@ exports.getCharities = async (req, res) => {
 exports.updateCharity = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, image, icon, goalAmount } = req.body || {};
+    const { name, description, image, icon, goalAmount, stripeLink } = req.body || {};
 
     const patch = {};
     if (name !== undefined) patch.name = name;
@@ -59,6 +60,7 @@ exports.updateCharity = async (req, res) => {
     if (image !== undefined) patch.image = image;
     if (icon !== undefined) patch.icon = icon;
     if (goalAmount !== undefined) patch.goalAmount = goalAmount;
+    if (stripeLink !== undefined) patch.stripeLink = stripeLink;
 
     const updated = await Charity.findByIdAndUpdate(id, patch, { new: true });
     if (!updated) return res.status(404).json({ message: "Charity not found" });

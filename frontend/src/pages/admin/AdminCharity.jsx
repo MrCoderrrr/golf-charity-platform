@@ -108,7 +108,7 @@ const AdminCharity = () => {
 
   const resetForm = () => {
     setEditingId("");
-    setCharity({ name: "", description: "", image: "", icon: "star", goalAmount: 0 });
+    setCharity({ name: "", description: "", image: "", icon: "star", goalAmount: 0, stripeLink: "" });
   };
 
   const save = async (e) => {
@@ -123,6 +123,7 @@ const AdminCharity = () => {
         image: charity?.image || "",
         icon: normalizeCharityIconKey(charity?.icon),
         goalAmount: Number(charity?.goalAmount) || 0,
+        stripeLink: charity?.stripeLink || "",
       };
 
       if (editingId) {
@@ -212,13 +213,25 @@ const AdminCharity = () => {
               />
             </div>
 
-            <div className="admin-field">
-              <label className="admin-label">Image URL</label>
-              <input
-                className="admin-input"
-                value={charity?.image || ""}
-                onChange={(e) => setCharity({ ...charity, image: e.target.value })}
-              />
+            <div className="admin-grid-2">
+              <div className="admin-field">
+                <label className="admin-label">Image URL</label>
+                <input
+                  className="admin-input"
+                  value={charity?.image || ""}
+                  onChange={(e) => setCharity({ ...charity, image: e.target.value })}
+                />
+              </div>
+
+              <div className="admin-field">
+                <label className="admin-label">Stripe Payment Link</label>
+                <input
+                  className="admin-input"
+                  placeholder="https://buy.stripe.com/..."
+                  value={charity?.stripeLink || ""}
+                  onChange={(e) => setCharity({ ...charity, stripeLink: e.target.value })}
+                />
+              </div>
             </div>
 
             {preview && (
@@ -278,6 +291,7 @@ const AdminCharity = () => {
                         image: c.image || "",
                         icon: normalizeCharityIconKey(c.icon),
                         goalAmount: c.goalAmount || 0,
+                        stripeLink: c.stripeLink || "",
                       });
                     }}
                   >

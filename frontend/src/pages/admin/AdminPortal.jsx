@@ -6,7 +6,7 @@ import { useAuth } from "../../context/AuthContext";
 const AdminPortal = () => {
   const { user } = useAuth();
   const location = useLocation();
-  const [charity, setCharity] = useState({ name: "", description: "", image: "", icon: "*", goalAmount: 0 });
+  const [charity, setCharity] = useState({ name: "", description: "", image: "", icon: "*", goalAmount: 0, stripeLink: "" });
   const [draw, setDraw] = useState({ month: "", year: "", type: "random" });
   const [winners, setWinners] = useState([]);
   const [users, setUsers] = useState([]);
@@ -77,7 +77,7 @@ const AdminPortal = () => {
     } catch {
       setStatusMessage("Failed to create charity");
     }
-    setCharity({ name: "", description: "", image: "", icon: "*", goalAmount: 0 });
+    setCharity({ name: "", description: "", image: "", icon: "*", goalAmount: 0, stripeLink: "" });
   };
 
   const createDraw = async (e) => {

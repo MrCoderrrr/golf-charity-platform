@@ -245,9 +245,20 @@ const Charities = () => {
                     <button className="btn secondary" onClick={() => selectCharity(c._id)}>
                       Select
                     </button>
-                    <Link className="btn frost-sapphire" to="/pricing">
-                      Donate
-                    </Link>
+                    {c.stripeLink ? (
+                      <a
+                        className="btn frost-sapphire"
+                        href={c.stripeLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        Donate
+                      </a>
+                    ) : (
+                      <Link className="btn frost-sapphire" to="/pricing">
+                        Donate
+                      </Link>
+                    )}
                   </div>
                 </div>
               </div>
